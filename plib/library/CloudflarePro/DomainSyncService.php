@@ -8,13 +8,67 @@ class CloudflarePro_DomainSyncService
     private $settings;
     private $plesk;
 
-    public function __construct()
+    public function __construct(array $owner = null)
     {
         $this->cloudflare = new CloudflarePro_CloudflareClient();
-        $this->tokens = new Modules_CloudflarePro_TokenRepository();
-        $this->domains = new Modules_CloudflarePro_DomainRepository();
-        $this->settings = new Modules_CloudflarePro_SettingsRepository();
+        $this->tokens = new Modules_CloudflarePro_TokenRepository($owner);
+        $this->domains = new Modules_CloudflarePro_DomainRepository($owner);
+        $this->settings = new Modules_CloudflarePro_SettingsRepository($owner);
         $this->plesk = new CloudflarePro_PleskDnsService();
+    }
+
+    public static function autoSyncHost($hostName, $sourceDomainName = null, $attempts = 1)
+    {
+        $links = (new Modules_CloudflarePro_DomainRepository(['id' => 'system', 'login' => 'system']))
+            ->findAutosyncLinksForHostAllOwners($hostName);
+        $results = [];
+
+        if (!$links) {
+            error_log('Cloudflare Pro autosync skipped: no linked zone for ' . $hostName);
+
+            return $results;
+        }
+
+        foreach ($links as $link) {
+            $owner = [
+                'id' => $link['owner_id'],
+                'login' => $link['owner_login'],
+            ];
+
+            try {
+                $settings = (new Modules_CloudflarePro_SettingsRepository($owner))->all();
+                if (empty($settings['enable_autosync'])) {
+                    continue;
+                }
+
+                $service = new self($owner);
+                $lastError = null;
+                for ($attempt = 1; $attempt <= max(1, (int) $attempts); $attempt++) {
+                    try {
+                        $result = $service->syncLinkIncremental($link['id'], $sourceDomainName);
+                        if (empty($result['empty_source'])) {
+                            $results[] = $result;
+                            break;
+                        }
+                    } catch (Throwable $e) {
+                        $lastError = $e;
+                        if ($attempt === max(1, (int) $attempts)) {
+                            throw $e;
+                        }
+                    }
+
+                    sleep(1);
+                }
+
+                if ($lastError) {
+                    throw $lastError;
+                }
+            } catch (Throwable $e) {
+                error_log('Cloudflare Pro autosync failed for ' . $hostName . ': ' . $e->getMessage());
+            }
+        }
+
+        return $results;
     }
 
     public function linkedDomains()
@@ -90,6 +144,168 @@ class CloudflarePro_DomainSyncService
             return [
                 'created' => $created,
                 'deleted' => $deleted,
+            ];
+        } catch (Throwable $e) {
+            $this->domains->markError($link['id'], $e->getMessage());
+            throw $e;
+        }
+    }
+
+    public function queueItemsForLink($linkId)
+    {
+        $link = $this->domains->find($linkId);
+        $settings = $this->settings->all();
+        $records = array_values(array_filter(array_map(function ($record) use ($settings) {
+            return $this->cloudflareRecord($record, $settings);
+        }, $this->plesk->recordsForDomainId($link['domain_id']))));
+
+        return $records;
+    }
+
+    public function queueImportItemsForLink($linkId)
+    {
+        $link = $this->domains->find($linkId);
+        $token = $this->tokens->secret($link['token_id']);
+
+        return array_values(array_filter(array_map(function ($record) use ($link) {
+            $payload = $this->normalizeCloudflareRecord($record);
+            return $payload && $this->shouldReplace($payload) && $this->recordBelongsToZone($payload, $link['zone_name']) ? $payload : null;
+        }, $this->cloudflare->listDnsRecords($token, $link['zone_id']))));
+    }
+
+    public function processSyncQueueBatch($linkId, array $items)
+    {
+        $link = $this->domains->find($linkId);
+        $token = $this->tokens->secret($link['token_id']);
+        $created = 0;
+        $updated = 0;
+
+        $existing = [];
+        foreach ($this->cloudflare->listDnsRecords($token, $link['zone_id']) as $record) {
+            $normalized = $this->normalizeCloudflareRecord($record);
+            if (!$this->shouldReplace($normalized) || empty($record['id'])) {
+                continue;
+            }
+            $existing[$this->nameTypeKey($normalized)] = $record;
+        }
+
+        foreach ($items as $record) {
+            if (!$this->recordBelongsToZone($record, $link['zone_name'])) {
+                continue;
+            }
+
+            $key = $this->nameTypeKey($record);
+            if (isset($existing[$key]) && !empty($existing[$key]['id'])) {
+                $this->cloudflare->updateDnsRecord($token, $link['zone_id'], $existing[$key]['id'], $record);
+                $updated++;
+            } else {
+                $createdRecord = $this->cloudflare->createDnsRecord($token, $link['zone_id'], $record);
+                if (isset($createdRecord['result']) && is_array($createdRecord['result'])) {
+                    $existing[$key] = $createdRecord['result'];
+                }
+                $created++;
+            }
+        }
+
+        $this->domains->markSynced($link['id'], $created + $updated);
+
+        return [
+            'created' => $created,
+            'updated' => $updated,
+        ];
+    }
+
+    public function processImportQueueBatch($linkId, array $items)
+    {
+        $link = $this->domains->find($linkId);
+        $created = 0;
+        $updated = 0;
+
+        foreach ($items as $record) {
+            if (!$this->recordBelongsToZone($record, $link['zone_name'])) {
+                continue;
+            }
+
+            $removed = $this->plesk->removeByNameType($link['domain_id'], $record['name'], $record['type']);
+            $this->plesk->createRecordForDomainId($link['domain_id'], $record);
+            if ($removed > 0) {
+                $updated++;
+            } else {
+                $created++;
+            }
+        }
+
+        $this->domains->markSynced($link['id'], $created + $updated);
+
+        return [
+            'created' => $created,
+            'updated' => $updated,
+        ];
+    }
+
+    public function syncLinkIncremental($linkId, $sourceDomainName = null)
+    {
+        $link = $this->domains->find($linkId);
+        $token = $this->tokens->secret($link['token_id']);
+        $settings = $this->settings->all();
+
+        if (empty($settings['enable_autosync']) || empty($link['auto_sync'])) {
+            return [
+                'created' => 0,
+                'updated' => 0,
+                'skipped' => true,
+            ];
+        }
+
+        if (!empty($settings['validate_token_before_sync'])) {
+            $this->cloudflare->verifyToken($token);
+        }
+
+        try {
+            $sourceRecords = $this->recordsFromSource($link, $sourceDomainName);
+            $records = array_values(array_filter(array_map(function ($record) use ($settings, $link) {
+                $payload = $this->cloudflareRecord($record, $settings);
+                return $payload && $this->recordBelongsToZone($payload, $link['zone_name']) ? $payload : null;
+            }, $sourceRecords)));
+
+            if (!$records) {
+                error_log('Cloudflare Pro autosync found no source DNS records for ' . ($sourceDomainName ?: $link['domain_name']));
+
+                return [
+                    'created' => 0,
+                    'updated' => 0,
+                    'empty_source' => true,
+                ];
+            }
+
+            $existing = [];
+            foreach ($this->cloudflare->listDnsRecords($token, $link['zone_id']) as $record) {
+                $normalized = $this->normalizeCloudflareRecord($record);
+                if (!$this->shouldReplace($normalized) || empty($record['id'])) {
+                    continue;
+                }
+                $existing[$this->nameTypeKey($normalized)] = $record;
+            }
+
+            $created = 0;
+            $updated = 0;
+            foreach ($records as $record) {
+                $key = $this->nameTypeKey($record);
+                if (isset($existing[$key])) {
+                    $this->cloudflare->updateDnsRecord($token, $link['zone_id'], $existing[$key]['id'], $record);
+                    $updated++;
+                } else {
+                    $this->cloudflare->createDnsRecord($token, $link['zone_id'], $record);
+                    $created++;
+                }
+            }
+
+            $this->domains->markSynced($link['id'], $created + $updated);
+            error_log('Cloudflare Pro autosync completed for ' . ($sourceDomainName ?: $link['domain_name']) . ': created=' . $created . ', updated=' . $updated);
+
+            return [
+                'created' => $created,
+                'updated' => $updated,
             ];
         } catch (Throwable $e) {
             $this->domains->markError($link['id'], $e->getMessage());
@@ -304,6 +520,27 @@ class CloudflarePro_DomainSyncService
         }
 
         return $domains;
+    }
+
+    private function recordsFromSource(array $link, $sourceDomainName = null)
+    {
+        if ($sourceDomainName) {
+            try {
+                return $this->plesk->recordsForDomainName($sourceDomainName);
+            } catch (Throwable $e) {
+                error_log('Cloudflare Pro source DNS lookup failed for ' . $sourceDomainName . ': ' . $e->getMessage());
+            }
+        }
+
+        return $this->plesk->recordsForDomainId($link['domain_id']);
+    }
+
+    private function recordBelongsToZone(array $record, $zoneName)
+    {
+        $name = strtolower(rtrim(isset($record['name']) ? $record['name'] : '', '.'));
+        $zoneName = strtolower(rtrim((string) $zoneName, '.'));
+
+        return $name === $zoneName || substr($name, -strlen('.' . $zoneName)) === '.' . $zoneName;
     }
 
     private function cloudflareRecord($record, array $settings)

@@ -5,11 +5,11 @@ class Modules_CloudflarePro_DomainRepository
     private $db;
     private $owner;
 
-    public function __construct()
+    public function __construct(array $owner = null)
     {
         $this->db = new PDO('sqlite:' . $this->getDbPath());
         $this->db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-        $this->owner = $this->getOwner();
+        $this->owner = $owner ?: $this->getOwner();
         $this->init();
     }
 
@@ -112,6 +112,30 @@ class Modules_CloudflarePro_DomainRepository
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
         return $row ?: null;
+    }
+
+    public function findAutosyncLinksForHostAllOwners($hostName)
+    {
+        $hostName = strtolower(rtrim((string) $hostName, '.'));
+        $stmt = $this->db->prepare(
+            'SELECT id, owner_id, owner_login, domain_id, domain_name, token_id, token_name,
+                    zone_id, zone_name, status, auto_sync, records_count, last_synced_at,
+                    last_discovered_at, last_error, created_at, updated_at
+             FROM domain_links
+             WHERE auto_sync = 1
+               AND (
+                    lower(domain_name) = :host_name
+                    OR :host_name LIKE "%." || lower(domain_name)
+                    OR lower(zone_name) = :host_name
+                    OR :host_name LIKE "%." || lower(zone_name)
+               )
+             ORDER BY length(zone_name) DESC, length(domain_name) DESC, id ASC'
+        );
+        $stmt->execute([
+            ':host_name' => $hostName,
+        ]);
+
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
     public function upsert(array $link)

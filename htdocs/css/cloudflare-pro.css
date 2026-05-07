@@ -77,6 +77,10 @@
     width: 100%;
 }
 
+#gc-records-list .gc-record-list .pul-list__header {
+    display: none;
+}
+
 .gc-list-toolbar {
     display: flex;
     justify-content: flex-start;

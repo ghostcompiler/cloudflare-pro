@@ -5,12 +5,12 @@ class Modules_CloudflarePro_TokenRepository
     private $db;
     private $owner;
 
-    public function __construct()
+    public function __construct(array $owner = null)
     {
         $dbPath = $this->getDbPath();
         $this->db = new PDO('sqlite:' . $dbPath);
         $this->db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-        $this->owner = $this->getOwner();
+        $this->owner = $owner ?: $this->getOwner();
         $this->init();
     }
 

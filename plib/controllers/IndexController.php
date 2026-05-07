@@ -4,6 +4,7 @@ require_once pm_Context::getPlibDir() . 'library/TokenRepository.php';
 require_once pm_Context::getPlibDir() . 'library/ApiLogRepository.php';
 require_once pm_Context::getPlibDir() . 'library/SettingsRepository.php';
 require_once pm_Context::getPlibDir() . 'library/DomainRepository.php';
+require_once pm_Context::getPlibDir() . 'library/SyncJobRepository.php';
 require_once pm_Context::getPlibDir() . 'library/CloudflarePro/Permissions.php';
 require_once pm_Context::getPlibDir() . 'library/CloudflarePro/CloudflareClient.php';
 require_once pm_Context::getPlibDir() . 'library/CloudflarePro/PleskDnsService.php';
@@ -114,6 +115,10 @@ class IndexController extends pm_Controller_Action
         $this->view->recordDomain = $data['domain'];
         $this->view->records = $data['records'];
         $this->view->setRecordProxyAction = pm_Context::getActionUrl('index', 'set-record-proxy');
+        $this->view->syncDomainAction = pm_Context::getActionUrl('index', 'sync-domain');
+        $this->view->startSyncJobAction = pm_Context::getActionUrl('index', 'start-sync-job');
+        $this->view->processSyncJobAction = pm_Context::getActionUrl('index', 'process-sync-job');
+        $this->view->syncJobStatusAction = pm_Context::getActionUrl('index', 'sync-job-status');
         $this->view->recordAction = pm_Context::getActionUrl('index', 'record-action');
         $this->renderTab(
             'Domain: ' . $data['domain']['domain_name'],
@@ -121,6 +126,123 @@ class IndexController extends pm_Controller_Action
             'DNS records will appear here after they are available in Plesk or Cloudflare.',
             'records'
         );
+    }
+
+    public function startSyncJobAction()
+    {
+        $this->disableRendering();
+
+        if (!$this->_request->isPost()) {
+            return $this->jsonResponse(false, 'Invalid request method.');
+        }
+
+        $linkId = (int) $this->_request->getPost('link_id', 0);
+        if ($linkId <= 0) {
+            return $this->jsonResponse(false, 'Linked domain is required.');
+        }
+
+        try {
+            $service = new CloudflarePro_DomainSyncService();
+            $repository = new Modules_CloudflarePro_SyncJobRepository();
+            $mode = trim((string) $this->_request->getPost('mode', 'export'));
+            if (!in_array($mode, ['import', 'export', 'sync'], true)) {
+                $mode = 'export';
+            }
+            $items = 'import' === $mode ? $service->queueImportItemsForLink($linkId) : $service->queueItemsForLink($linkId);
+            $job = $repository->create($linkId, $items, $mode);
+
+            return $this->jsonResponse(true, 'Sync job started.', $repository->response($job));
+        } catch (Throwable $e) {
+            return $this->jsonResponse(false, $e->getMessage());
+        }
+    }
+
+    public function processSyncJobAction()
+    {
+        $this->disableRendering();
+
+        if (!$this->_request->isPost()) {
+            return $this->jsonResponse(false, 'Invalid request method.');
+        }
+
+        $jobId = (int) $this->_request->getPost('job_id', 0);
+        if ($jobId <= 0) {
+            return $this->jsonResponse(false, 'Sync job is required.');
+        }
+
+        try {
+            $repository = new Modules_CloudflarePro_SyncJobRepository();
+            $service = new CloudflarePro_DomainSyncService();
+            $job = $repository->find($jobId);
+
+            if ('done' === $job['status']) {
+                $data = $service->recordsForLink($job['link_id']);
+
+                return $this->jsonResponse(true, 'Sync job completed.', array_merge($repository->response($job), [
+                    'records' => $data['records'],
+                ]));
+            }
+
+            $batchSize = 3;
+            $items = array_slice($job['items'], $job['processed'], $batchSize);
+            $processed = $job['processed'];
+            $created = $job['created'];
+            $updated = $job['updated'];
+            $failed = $job['failed'];
+            $error = null;
+
+            foreach ($items as $item) {
+                try {
+                    $result = 'import' === $job['mode']
+                        ? $service->processImportQueueBatch($job['link_id'], [$item])
+                        : $service->processSyncQueueBatch($job['link_id'], [$item]);
+                    $created += (int) $result['created'];
+                    $updated += (int) $result['updated'];
+                } catch (Throwable $e) {
+                    $failed++;
+                    $error = $e->getMessage();
+                }
+                $processed++;
+            }
+
+            $status = $processed >= $job['total'] ? 'done' : 'running';
+            $job = $repository->markProgress($job['id'], $processed, $created, $updated, $failed, $status, $error);
+
+            $response = $repository->response($job);
+            if ('done' === $status) {
+                $data = $service->recordsForLink($job['link_id']);
+                $response['records'] = $data['records'];
+            }
+
+            return $this->jsonResponse(true, 'Sync job updated.', $response);
+        } catch (Throwable $e) {
+            return $this->jsonResponse(false, $e->getMessage());
+        }
+    }
+
+    public function syncJobStatusAction()
+    {
+        $this->disableRendering();
+
+        if (!$this->_request->isPost()) {
+            return $this->jsonResponse(false, 'Invalid request method.');
+        }
+
+        $linkId = (int) $this->_request->getPost('link_id', 0);
+        if ($linkId <= 0) {
+            return $this->jsonResponse(false, 'Linked domain is required.');
+        }
+
+        try {
+            $repository = new Modules_CloudflarePro_SyncJobRepository();
+            $job = $repository->findRunningByLink($linkId);
+
+            return $this->jsonResponse(true, 'Sync job status loaded.', $job ? $repository->response($job) : [
+                'job' => null,
+            ]);
+        } catch (Throwable $e) {
+            return $this->jsonResponse(false, $e->getMessage());
+        }
     }
 
     public function setRecordProxyAction()

@@ -15,11 +15,11 @@ class Modules_CloudflarePro_SettingsRepository
         'validate_token_before_sync' => true,
     ];
 
-    public function __construct()
+    public function __construct(array $owner = null)
     {
         $this->db = new PDO('sqlite:' . $this->getDbPath());
         $this->db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-        $this->owner = $this->getOwner();
+        $this->owner = $owner ?: $this->getOwner();
         $this->init();
     }
 

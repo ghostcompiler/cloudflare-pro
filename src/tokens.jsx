@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import {
@@ -12,6 +12,8 @@ import {
   List,
   ListEmptyView,
   Pagination,
+  Progress,
+  ProgressStep,
   SearchBar,
   Status,
   Switch,
@@ -407,15 +409,17 @@ function DomainApp({ syncAction, autosyncAction, recordsAction, initialDomains }
   );
 }
 
-function RecordsApp({ proxyAction, syncAction, recordAction, domain, initialRecords }) {
+function RecordsApp({ proxyAction, syncAction, startSyncJobAction, processSyncJobAction, syncJobStatusAction, recordAction, domain, initialRecords }) {
   const target = document.getElementById('gc-records-list');
   const [records, setRecords] = useState(initialRecords);
   const [toasts, setToasts] = useState([]);
   const [busy, setBusy] = useState('');
   const [sortDirection, setSortDirection] = useState('asc');
   const [page, setPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(25);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
   const [searchQuery, setSearchQuery] = useState('');
+  const syncToasterRef = useRef(null);
+  const syncToastKeyRef = useRef(null);
 
   const notify = (intent, message) => {
     const key = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -424,6 +428,113 @@ function RecordsApp({ proxyAction, syncAction, recordAction, domain, initialReco
       ...current,
     ].slice(0, 5));
   };
+
+  const modeLabel = mode => {
+    switch (mode) {
+      case 'import':
+        return 'Import';
+      case 'export':
+        return 'Export';
+      default:
+        return 'Sync';
+    }
+  };
+
+  const syncProgressMessage = job => {
+    const progress = typeof job.progress === 'number' ? job.progress : -1;
+    const isDone = job.status === 'done';
+    const hasFailed = Boolean(job.failed);
+    const label = modeLabel(job.mode);
+    return (
+      <Progress>
+        <ProgressStep
+          title={isDone ? `${label} completed` : `${label} in progress`}
+          status={isDone ? (hasFailed ? 'warning' : 'done') : 'running'}
+          progress={isDone ? 100 : progress}
+          statusText={isDone ? 'Done' : `${progress >= 0 ? progress : 0}%`}
+        >
+          <span>
+            {`${job.processed || 0} / ${job.total || 0} records`}
+            <br />
+            {`Created: ${job.created || 0}  Updated: ${job.updated || 0}  Failed: ${job.failed || 0}`}
+          </span>
+        </ProgressStep>
+      </Progress>
+    );
+  };
+
+  const showSyncProgress = job => {
+    if (!syncToasterRef.current) {
+      return;
+    }
+
+    const toast = {
+      message: syncProgressMessage(job),
+      closable: job.status === 'done',
+    };
+
+    if (syncToastKeyRef.current) {
+      syncToasterRef.current.update(syncToastKeyRef.current, toast);
+      return;
+    }
+
+    syncToastKeyRef.current = syncToasterRef.current.add(toast);
+  };
+
+  const processJob = async initialJob => {
+    let job = initialJob;
+    showSyncProgress(job);
+
+    while (job && job.status !== 'done') {
+      const payload = await postAction(processSyncJobAction, { job_id: job.id });
+      job = payload.job;
+      showSyncProgress(job);
+      if (payload.records) {
+        setRecords(payload.records);
+      }
+    }
+
+    return job;
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const resumeJob = async () => {
+      if (!syncJobStatusAction || !processSyncJobAction) {
+        return;
+      }
+
+      try {
+        const payload = await postAction(syncJobStatusAction, { link_id: domain.id });
+        if (!cancelled && payload.job) {
+          setBusy(`sync-all-records-${payload.job.mode || 'sync'}`);
+          const job = await processJob(payload.job);
+          if (!cancelled) {
+            if (job?.failed) {
+              notify('warning', `${modeLabel(job.mode)} completed with ${job.failed} failed record${job.failed === 1 ? '' : 's'}.`);
+            } else {
+              notify('success', `${modeLabel(job?.mode)} completed.`);
+            }
+          }
+        }
+      } catch (error) {
+        if (!cancelled) {
+          notify('danger', error.message);
+        }
+      } finally {
+        if (!cancelled) {
+          setBusy('');
+        }
+      }
+    };
+
+    resumeJob();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const toggleProxy = async (row, value) => {
     setBusy(row.cloudflare_id);
@@ -442,17 +553,32 @@ function RecordsApp({ proxyAction, syncAction, recordAction, domain, initialReco
     }
   };
 
-  const syncAllRecords = async () => {
-    setBusy('sync-all-records');
+  const syncAllRecords = async (mode = 'sync') => {
+    setBusy(`sync-all-records-${mode}`);
+    showSyncProgress({
+      status: 'starting',
+      mode,
+      total: 0,
+      processed: 0,
+      created: 0,
+      updated: 0,
+      failed: 0,
+      progress: -1,
+    });
+
     try {
-      await postAction(syncAction, { link_id: domain.id, mode: 'sync' });
-      const payload = await postAction(recordAction, {
-        link_id: domain.id,
-        direction: 'refresh',
-        record_key: 'refresh',
-      });
-      setRecords(payload.records || []);
-      notify('success', 'All records synced.');
+      if (!startSyncJobAction || !processSyncJobAction) {
+        throw new Error('Sync queue endpoints are missing. Refresh the page after updating the extension.');
+      }
+
+      const started = await postAction(startSyncJobAction || syncAction, { link_id: domain.id, mode });
+      const job = await processJob(started.job);
+
+      if (job?.failed) {
+        notify('warning', `${modeLabel(job.mode)} completed with ${job.failed} failed record${job.failed === 1 ? '' : 's'}.`);
+      } else {
+        notify('success', `${modeLabel(job?.mode)} completed for ${job?.processed || 0} DNS record${job?.processed === 1 ? '' : 's'}.`);
+      }
     } catch (error) {
       notify('danger', error.message);
     } finally {
@@ -546,7 +672,7 @@ function RecordsApp({ proxyAction, syncAction, recordAction, domain, initialReco
       width: '10%',
       render: row => (
         <ButtonGroup className="gc-record-actions">
-          {row.has_local ? (
+          {row.status !== 'synced' && row.has_local ? (
             <Button
               icon="arrow-up-tray"
               arrow="backward"
@@ -557,7 +683,7 @@ function RecordsApp({ proxyAction, syncAction, recordAction, domain, initialReco
               state={busy === `push-${row.local_key}` ? 'loading' : undefined}
             />
           ) : null}
-          {row.has_cloudflare ? (
+          {row.status !== 'synced' && row.has_cloudflare ? (
             <Button
               icon="arrow-down-tray"
               intent="primary"
@@ -607,7 +733,7 @@ function RecordsApp({ proxyAction, syncAction, recordAction, domain, initialReco
   const data = visibleRecords
     .map((record, index) => ({
       ...record,
-      key: `${record.type}-${record.name}-${index}`,
+      key: `${record.type}-${record.name}-${(currentPage - 1) * (itemsPerPage === 'all' ? sortedRecords.length : itemsPerPage) + index}`,
     }));
 
   useEffect(() => {
@@ -622,13 +748,15 @@ function RecordsApp({ proxyAction, syncAction, recordAction, domain, initialReco
         columns={columns}
         data={data}
         rowKey="key"
+        totalRows={sortedRecords.length}
+        className="gc-record-list"
         pagination={sortedRecords.length ? (
           <Pagination
             total={totalPages}
             current={currentPage}
             onSelect={setPage}
             itemsPerPage={itemsPerPage}
-            itemsPerPageOptions={[25, 50, 100, 'all']}
+            itemsPerPageOptions={[10, 25, 50, 100, 'all']}
             onItemsPerPageChange={value => {
               setItemsPerPage(value);
               setPage(1);
@@ -648,6 +776,7 @@ function RecordsApp({ proxyAction, syncAction, recordAction, domain, initialReco
 
   return (
     <>
+      <Toaster position="bottom-end" ref={syncToasterRef} />
       <Toaster
         toasts={toasts}
         position="top-end"
@@ -678,11 +807,27 @@ function RecordsApp({ proxyAction, syncAction, recordAction, domain, initialReco
           {'Back'}
         </Button>
         <Button
+          intent="warning"
+          icon="arrow-down-tray"
+          onClick={() => syncAllRecords('import')}
+          state={busy === 'sync-all-records-import' ? 'loading' : undefined}
+        >
+          {'Import'}
+        </Button>
+        <Button
+          intent="success"
+          icon="arrow-up-tray"
+          onClick={() => syncAllRecords('export')}
+          state={busy === 'sync-all-records-export' ? 'loading' : undefined}
+        >
+          {'Export'}
+        </Button>
+        <Button
           arrow="forward"
           intent="primary"
           icon={<Icon name="reload" />}
-          onClick={syncAllRecords}
-          state={busy === 'sync-all-records' ? 'loading' : undefined}
+          onClick={() => syncAllRecords('sync')}
+          state={busy === 'sync-all-records-sync' ? 'loading' : undefined}
         >
           {'Sync All'}
         </Button>
@@ -1550,6 +1695,9 @@ if (recordsRootElement) {
     <RecordsApp
       proxyAction={recordsRootElement.dataset.proxyAction}
       syncAction={recordsRootElement.dataset.syncAction}
+      startSyncJobAction={recordsRootElement.dataset.startSyncJobAction}
+      processSyncJobAction={recordsRootElement.dataset.processSyncJobAction}
+      syncJobStatusAction={recordsRootElement.dataset.syncJobStatusAction}
       recordAction={recordsRootElement.dataset.recordAction}
       domain={parseSettings(recordsRootElement.dataset.domain)}
       initialRecords={parseRecords(recordsRootElement.dataset.records)}

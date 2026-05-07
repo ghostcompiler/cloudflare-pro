@@ -9,6 +9,11 @@ class CloudflarePro_PleskDnsService
         return $this->recordsForDomain($this->domainById($domainId));
     }
 
+    public function recordsForDomainName($domainName)
+    {
+        return $this->recordsForDomain($this->domainByName($domainName));
+    }
+
     public function createRecordForDomainId($domainId, array $record)
     {
         $domain = $this->domainById($domainId);
@@ -62,6 +67,18 @@ class CloudflarePro_PleskDnsService
         }
 
         throw new pm_Exception('Domain not found or not accessible.');
+    }
+
+    private function domainByName($domainName)
+    {
+        $domainName = strtolower(rtrim((string) $domainName, '.'));
+        foreach (pm_Domain::getAllDomains(false) as $domain) {
+            if (strtolower(rtrim($domain->getName(), '.')) === $domainName) {
+                return $domain;
+            }
+        }
+
+        throw new pm_Exception('Domain not found: ' . $domainName);
     }
 
     private function recordsForDomain(pm_Domain $domain)

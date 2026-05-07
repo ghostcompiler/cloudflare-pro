@@ -25,6 +25,9 @@ $tokensAssetVersion = file_exists($tokensAssetPath) ? (string) filemtime($tokens
             data-domain="<?php echo $this->escape(json_encode($this->recordDomain)); ?>"
             data-proxy-action="<?php echo $this->escape($this->setRecordProxyAction); ?>"
             data-sync-action="<?php echo $this->escape($this->syncDomainAction); ?>"
+            data-start-sync-job-action="<?php echo $this->escape($this->startSyncJobAction); ?>"
+            data-process-sync-job-action="<?php echo $this->escape($this->processSyncJobAction); ?>"
+            data-sync-job-status-action="<?php echo $this->escape($this->syncJobStatusAction); ?>"
             data-record-action="<?php echo $this->escape($this->recordAction); ?>"
         ></div>
     <?php elseif ('tokens' === $this->tabId): ?>
