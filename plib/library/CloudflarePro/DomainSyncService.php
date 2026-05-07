@@ -119,8 +119,8 @@ class CloudflarePro_DomainSyncService
         }
 
         try {
-            $records = array_values(array_filter(array_map(function ($record) use ($settings) {
-                return $this->cloudflareRecord($record, $settings);
+            $records = array_values(array_filter(array_map(function ($record) {
+                return $this->cloudflareRecord($record);
             }, $this->plesk->recordsForDomainId($link['domain_id']))));
 
             $existing = $this->cloudflare->listDnsRecords($token, $link['zone_id']);
@@ -154,9 +154,8 @@ class CloudflarePro_DomainSyncService
     public function queueItemsForLink($linkId)
     {
         $link = $this->domains->find($linkId);
-        $settings = $this->settings->all();
-        $records = array_values(array_filter(array_map(function ($record) use ($settings) {
-            return $this->cloudflareRecord($record, $settings);
+        $records = array_values(array_filter(array_map(function ($record) {
+            return $this->cloudflareRecord($record);
         }, $this->plesk->recordsForDomainId($link['domain_id']))));
 
         return $records;
@@ -264,7 +263,7 @@ class CloudflarePro_DomainSyncService
         try {
             $sourceRecords = $this->recordsFromSource($link, $sourceDomainName);
             $records = array_values(array_filter(array_map(function ($record) use ($settings, $link) {
-                $payload = $this->cloudflareRecord($record, $settings);
+                $payload = $this->cloudflareRecord($record, $settings, true);
                 return $payload && $this->recordBelongsToZone($payload, $link['zone_name']) ? $payload : null;
             }, $sourceRecords)));
 
@@ -317,9 +316,8 @@ class CloudflarePro_DomainSyncService
     {
         $link = $this->domains->find($linkId);
         $token = $this->tokens->secret($link['token_id']);
-        $settings = $this->settings->all();
-        $localRecords = array_values(array_filter(array_map(function ($record) use ($settings) {
-            return $this->cloudflareRecord($record, $settings);
+        $localRecords = array_values(array_filter(array_map(function ($record) {
+            return $this->cloudflareRecord($record);
         }, $this->plesk->recordsForDomainId($link['domain_id']))));
         $cloudflareRecords = array_values(array_filter(array_map(function ($record) {
             return $this->normalizeCloudflareRecord($record);
@@ -410,11 +408,10 @@ class CloudflarePro_DomainSyncService
     {
         $link = $this->domains->find($linkId);
         $token = $this->tokens->secret($link['token_id']);
-        $settings = $this->settings->all();
         $target = null;
 
         foreach ($this->plesk->recordsForDomainId($link['domain_id']) as $record) {
-            $payload = $this->cloudflareRecord($record, $settings);
+            $payload = $this->cloudflareRecord($record);
             if ($payload && $this->recordKey($payload) === $recordKey) {
                 $target = $payload;
                 break;
@@ -475,11 +472,10 @@ class CloudflarePro_DomainSyncService
     {
         $link = $this->domains->find($linkId);
         $token = $this->tokens->secret($link['token_id']);
-        $settings = $this->settings->all();
         $target = null;
 
         foreach ($this->plesk->recordsForDomainId($link['domain_id']) as $record) {
-            $payload = $this->cloudflareRecord($record, $settings);
+            $payload = $this->cloudflareRecord($record);
             if ($payload && $this->recordKey($payload) === $recordKey) {
                 $target = $payload;
                 break;
@@ -549,7 +545,7 @@ class CloudflarePro_DomainSyncService
         return $name === $zoneName || substr($name, -strlen('.' . $zoneName)) === '.' . $zoneName;
     }
 
-    private function cloudflareRecord($record, array $settings)
+    private function cloudflareRecord($record, array $settings = [], $applyProxyDefaults = false)
     {
         $type = strtoupper($record['type']);
         if (!$this->shouldReplace(['type' => $type])) {
@@ -572,7 +568,7 @@ class CloudflarePro_DomainSyncService
             $payload['priority'] = (int) $record['priority'];
         }
 
-        if (in_array($type, ['A', 'AAAA', 'CNAME'], true)) {
+        if ($applyProxyDefaults && in_array($type, ['A', 'AAAA', 'CNAME'], true)) {
             $payload['proxied'] = !empty($settings['proxy_' . strtolower($type)]);
         }
 

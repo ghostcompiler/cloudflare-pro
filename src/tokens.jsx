@@ -1045,17 +1045,17 @@ const settingsGroups = [
       {
         key: 'proxy_a',
         title: 'Enable proxy for A records',
-        description: 'Create or sync A records with Cloudflare proxy enabled by default.',
+        description: 'Apply Cloudflare proxy by default only when autosync creates new A records.',
       },
       {
         key: 'proxy_aaaa',
         title: 'Enable proxy for AAAA records',
-        description: 'Create or sync AAAA records with Cloudflare proxy enabled by default.',
+        description: 'Apply Cloudflare proxy by default only when autosync creates new AAAA records.',
       },
       {
         key: 'proxy_cname',
         title: 'Enable proxy for CNAME records',
-        description: 'Create or sync CNAME records with Cloudflare proxy enabled by default.',
+        description: 'Apply Cloudflare proxy by default only when autosync creates new CNAME records.',
       },
     ],
   },
