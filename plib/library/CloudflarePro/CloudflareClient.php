@@ -16,11 +16,85 @@ class CloudflarePro_CloudflareClient
         return $this->request($this->assertToken($token), 'GET', '/user/tokens/verify');
     }
 
-    private function request($token, $method, $path)
+    public function listZones($token)
+    {
+        $zones = [];
+        $page = 1;
+
+        do {
+            $response = $this->request($this->assertToken($token), 'GET', '/zones', [
+                'page' => $page,
+                'per_page' => 50,
+            ], null, true);
+            foreach (isset($response['result']) && is_array($response['result']) ? $response['result'] : [] as $zone) {
+                $zones[] = $zone;
+            }
+
+            $info = isset($response['result_info']) && is_array($response['result_info']) ? $response['result_info'] : [];
+            $totalPages = isset($info['total_pages']) ? (int) $info['total_pages'] : $page;
+            $page++;
+        } while ($page <= $totalPages && $page <= 100);
+
+        return $zones;
+    }
+
+    public function listDnsRecords($token, $zoneId)
+    {
+        $records = [];
+        $page = 1;
+
+        do {
+            $response = $this->request($this->assertToken($token), 'GET', '/zones/' . rawurlencode($zoneId) . '/dns_records', [
+                'page' => $page,
+                'per_page' => 100,
+            ], null, true);
+            foreach (isset($response['result']) && is_array($response['result']) ? $response['result'] : [] as $record) {
+                $records[] = $record;
+            }
+
+            $info = isset($response['result_info']) && is_array($response['result_info']) ? $response['result_info'] : [];
+            $totalPages = isset($info['total_pages']) ? (int) $info['total_pages'] : $page;
+            $page++;
+        } while ($page <= $totalPages && $page <= 100);
+
+        return $records;
+    }
+
+    public function createDnsRecord($token, $zoneId, array $record)
+    {
+        return $this->request($this->assertToken($token), 'POST', '/zones/' . rawurlencode($zoneId) . '/dns_records', [], $record);
+    }
+
+    public function updateDnsRecord($token, $zoneId, $recordId, array $record)
+    {
+        return $this->request($this->assertToken($token), 'PATCH', '/zones/' . rawurlencode($zoneId) . '/dns_records/' . rawurlencode($recordId), [], $record);
+    }
+
+    public function deleteDnsRecord($token, $zoneId, $recordId)
+    {
+        try {
+            return $this->request($this->assertToken($token), 'DELETE', '/zones/' . rawurlencode($zoneId) . '/dns_records/' . rawurlencode($recordId));
+        } catch (pm_Exception $e) {
+            if (false !== stripos($e->getMessage(), 'not found') || false !== stripos($e->getMessage(), '404')) {
+                return ['id' => (string) $recordId, 'missing' => true];
+            }
+
+            throw $e;
+        }
+    }
+
+    private function request($token, $method, $path, array $query = [], $body = null, $returnEnvelope = false)
     {
         $started = microtime(true);
+        $url = self::BASE_URL . $path;
+        if ($query) {
+            $url .= '?' . http_build_query($query, '', '&', PHP_QUERY_RFC3986);
+        }
+
         $request = [
             'path' => $path,
+            'query' => $query,
+            'body' => $body,
             'headers' => [
                 'Authorization' => 'Bearer [redacted]',
                 'Accept' => 'application/json',
@@ -31,7 +105,12 @@ class CloudflarePro_CloudflareClient
             throw new pm_Exception('cURL is not available on this server.');
         }
 
-        $curl = curl_init(self::BASE_URL . $path);
+        $headers = [
+            'Authorization: Bearer ' . $token,
+            'Accept: application/json',
+        ];
+
+        $curl = curl_init($url);
         curl_setopt_array($curl, [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_CUSTOMREQUEST => strtoupper($method),
@@ -39,11 +118,15 @@ class CloudflarePro_CloudflareClient
             CURLOPT_TIMEOUT => 45,
             CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_SSL_VERIFYHOST => 2,
-            CURLOPT_HTTPHEADER => [
-                'Authorization: Bearer ' . $token,
-                'Accept: application/json',
-            ],
+            CURLOPT_HTTPHEADER => $headers,
         ]);
+
+        if (null !== $body) {
+            $payload = json_encode($body, JSON_UNESCAPED_SLASHES);
+            $headers[] = 'Content-Type: application/json';
+            curl_setopt($curl, CURLOPT_HTTPHEADER, $headers);
+            curl_setopt($curl, CURLOPT_POSTFIELDS, $payload);
+        }
 
         $body = curl_exec($curl);
         $error = curl_error($curl);
@@ -66,7 +149,7 @@ class CloudflarePro_CloudflareClient
 
         if ($status >= 200 && $status < 300 && !empty($data['success'])) {
             $this->apiLog->add($path, $method, $status, true, $request, $data, $durationMs);
-            return isset($data['result']) ? $data['result'] : $data;
+            return $returnEnvelope ? $data : (isset($data['result']) ? $data['result'] : $data);
         }
 
         $message = $this->errorMessage($data, $status);

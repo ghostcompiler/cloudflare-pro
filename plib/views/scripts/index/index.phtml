@@ -8,7 +8,26 @@ $tokensAssetVersion = file_exists($tokensAssetPath) ? (string) filemtime($tokens
 <div class="gc-extension">
     <?php echo $this->renderTabs($this->tabs); ?>
 
-    <?php if ('tokens' === $this->tabId): ?>
+    <?php if ('domains' === $this->tabId): ?>
+        <div
+            id="gc-domain-app"
+            class="gc-page-actions"
+            data-sync-domain-action="<?php echo $this->escape($this->syncDomainAction); ?>"
+            data-autosync-action="<?php echo $this->escape($this->toggleAutosyncAction); ?>"
+            data-records-action="<?php echo $this->escape($this->recordsAction); ?>"
+            data-domains="<?php echo $this->escape(json_encode($this->domains)); ?>"
+        ></div>
+    <?php elseif ('records' === $this->tabId): ?>
+        <div
+            id="gc-records-app"
+            class="gc-page-actions"
+            data-records="<?php echo $this->escape(json_encode($this->records)); ?>"
+            data-domain="<?php echo $this->escape(json_encode($this->recordDomain)); ?>"
+            data-proxy-action="<?php echo $this->escape($this->setRecordProxyAction); ?>"
+            data-sync-action="<?php echo $this->escape($this->syncDomainAction); ?>"
+            data-record-action="<?php echo $this->escape($this->recordAction); ?>"
+        ></div>
+    <?php elseif ('tokens' === $this->tabId): ?>
         <div
             id="gc-token-app"
             class="gc-page-actions"
@@ -41,7 +60,11 @@ $tokensAssetVersion = file_exists($tokensAssetPath) ? (string) filemtime($tokens
 
     <div class="gc-panel">
         <div class="gc-panel-body">
-            <?php if ('tokens' === $this->tabId): ?>
+            <?php if ('domains' === $this->tabId): ?>
+                <div id="gc-domain-list"></div>
+            <?php elseif ('records' === $this->tabId): ?>
+                <div id="gc-records-list"></div>
+            <?php elseif ('tokens' === $this->tabId): ?>
                 <div id="gc-token-list"></div>
             <?php elseif ('logs' === $this->tabId): ?>
                 <div id="gc-api-log-list"></div>

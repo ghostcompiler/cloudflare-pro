@@ -3,8 +3,11 @@
 require_once pm_Context::getPlibDir() . 'library/TokenRepository.php';
 require_once pm_Context::getPlibDir() . 'library/ApiLogRepository.php';
 require_once pm_Context::getPlibDir() . 'library/SettingsRepository.php';
+require_once pm_Context::getPlibDir() . 'library/DomainRepository.php';
 require_once pm_Context::getPlibDir() . 'library/CloudflarePro/Permissions.php';
 require_once pm_Context::getPlibDir() . 'library/CloudflarePro/CloudflareClient.php';
+require_once pm_Context::getPlibDir() . 'library/CloudflarePro/PleskDnsService.php';
+require_once pm_Context::getPlibDir() . 'library/CloudflarePro/DomainSyncService.php';
 
 class IndexController extends pm_Controller_Action
 {
@@ -23,11 +26,167 @@ class IndexController extends pm_Controller_Action
 
     public function domainsAction()
     {
+        $service = new CloudflarePro_DomainSyncService();
+        $this->view->domains = $service->linkedDomains();
+        $this->view->syncDomainAction = pm_Context::getActionUrl('index', 'sync-domain');
+        $this->view->toggleAutosyncAction = pm_Context::getActionUrl('index', 'toggle-autosync');
+        $this->view->recordsAction = pm_Context::getActionUrl('index', 'records');
+
         $this->renderTab(
             'Domains',
-            'No domains added yet',
-            'Cloudflare connected domains will appear here after sync actions.'
+            'No linked Cloudflare domains yet',
+            'Add a valid token with access to zones matching your Plesk domains.',
+            'domains'
         );
+    }
+
+    public function syncDomainAction()
+    {
+        $this->disableRendering();
+
+        if (!$this->_request->isPost()) {
+            return $this->jsonResponse(false, 'Invalid request method.');
+        }
+
+        $linkId = (int) $this->_request->getPost('link_id', 0);
+        if ($linkId <= 0) {
+            return $this->jsonResponse(false, 'Linked domain is required.');
+        }
+
+        try {
+            $service = new CloudflarePro_DomainSyncService();
+            $result = $service->syncLink($linkId);
+
+            return $this->jsonResponse(true, 'Domain synced to Cloudflare successfully.', [
+                'domains' => $service->linkedDomains(),
+                'result' => $result,
+            ]);
+        } catch (Throwable $e) {
+            try {
+                $service = isset($service) ? $service : new CloudflarePro_DomainSyncService();
+                $domains = $service->linkedDomains();
+            } catch (Throwable $ignored) {
+                $domains = [];
+            }
+
+            return $this->jsonResponse(false, $e->getMessage(), [
+                'domains' => $domains,
+            ]);
+        }
+    }
+
+    public function toggleAutosyncAction()
+    {
+        $this->disableRendering();
+
+        if (!$this->_request->isPost()) {
+            return $this->jsonResponse(false, 'Invalid request method.');
+        }
+
+        $linkId = (int) $this->_request->getPost('link_id', 0);
+        if ($linkId <= 0) {
+            return $this->jsonResponse(false, 'Linked domain is required.');
+        }
+
+        try {
+            $repository = new Modules_CloudflarePro_DomainRepository();
+            $repository->setAutoSync($linkId, $this->truthyPost('auto_sync'));
+            $service = new CloudflarePro_DomainSyncService();
+
+            return $this->jsonResponse(true, 'Auto Sync updated successfully.', [
+                'domains' => $service->linkedDomains(),
+            ]);
+        } catch (Throwable $e) {
+            return $this->jsonResponse(false, $e->getMessage());
+        }
+    }
+
+    public function recordsAction()
+    {
+        $linkId = (int) $this->_request->getParam('link_id', 0);
+        if ($linkId <= 0) {
+            throw new pm_Exception('Linked domain is required.');
+        }
+
+        $service = new CloudflarePro_DomainSyncService();
+        $data = $service->recordsForLink($linkId);
+
+        $this->view->recordDomain = $data['domain'];
+        $this->view->records = $data['records'];
+        $this->view->setRecordProxyAction = pm_Context::getActionUrl('index', 'set-record-proxy');
+        $this->view->recordAction = pm_Context::getActionUrl('index', 'record-action');
+        $this->renderTab(
+            'Domain: ' . $data['domain']['domain_name'],
+            'No DNS records found',
+            'DNS records will appear here after they are available in Plesk or Cloudflare.',
+            'records'
+        );
+    }
+
+    public function setRecordProxyAction()
+    {
+        $this->disableRendering();
+
+        if (!$this->_request->isPost()) {
+            return $this->jsonResponse(false, 'Invalid request method.');
+        }
+
+        $linkId = (int) $this->_request->getPost('link_id', 0);
+        $recordId = trim((string) $this->_request->getPost('record_id', ''));
+        if ($linkId <= 0 || '' === $recordId) {
+            return $this->jsonResponse(false, 'Linked domain and DNS record are required.');
+        }
+
+        try {
+            $service = new CloudflarePro_DomainSyncService();
+            $data = $service->setRecordProxy($linkId, $recordId, $this->truthyPost('proxied'));
+
+            return $this->jsonResponse(true, 'Proxy updated successfully.', [
+                'records' => $data['records'],
+            ]);
+        } catch (Throwable $e) {
+            return $this->jsonResponse(false, $e->getMessage());
+        }
+    }
+
+    public function recordActionAction()
+    {
+        $this->disableRendering();
+
+        if (!$this->_request->isPost()) {
+            return $this->jsonResponse(false, 'Invalid request method.');
+        }
+
+        $linkId = (int) $this->_request->getPost('link_id', 0);
+        $direction = trim((string) $this->_request->getPost('direction', ''));
+        $recordKey = trim((string) $this->_request->getPost('record_key', ''));
+
+        if ($linkId <= 0 || '' === $recordKey) {
+            return $this->jsonResponse(false, 'Linked domain and DNS record are required.');
+        }
+
+        try {
+            $service = new CloudflarePro_DomainSyncService();
+            if ('refresh' === $direction) {
+                $data = $service->recordsForLink($linkId);
+                $message = 'Records refreshed successfully.';
+            } elseif ('pull' === $direction) {
+                $data = $service->pullRecord($linkId, $recordKey);
+                $message = 'Record pulled to Plesk successfully.';
+            } elseif ('delete' === $direction) {
+                $data = $service->deleteRecord($linkId, $recordKey);
+                $message = 'Record deleted from Plesk and Cloudflare successfully.';
+            } else {
+                $data = $service->pushRecord($linkId, $recordKey);
+                $message = 'Record pushed to Cloudflare successfully.';
+            }
+
+            return $this->jsonResponse(true, $message, [
+                'records' => $data['records'],
+            ]);
+        } catch (Throwable $e) {
+            return $this->jsonResponse(false, $e->getMessage());
+        }
     }
 
     public function tokensAction()
@@ -174,6 +333,8 @@ class IndexController extends pm_Controller_Action
         try {
             $repository = new Modules_CloudflarePro_TokenRepository();
             $repository->delete($id);
+            $domains = new Modules_CloudflarePro_DomainRepository();
+            $domains->removeByToken($id);
 
             return $this->jsonResponse(true, 'Token deleted successfully.', array(
                 'tokens' => $repository->all(),
@@ -270,6 +431,7 @@ class IndexController extends pm_Controller_Action
 
     private function renderTab($title, $emptyTitle, $emptyDescription, $id = null)
     {
+        $this->view->pageTitle = $title;
         $this->view->tabTitle = $title;
         $this->view->emptyTitle = $emptyTitle;
         $this->view->emptyDescription = $emptyDescription;
@@ -290,7 +452,7 @@ class IndexController extends pm_Controller_Action
                 'title' => 'Domains',
                 'controller' => 'index',
                 'action' => 'domains',
-                'active' => 'domains' === $activeAction || 'index' === $activeAction,
+                'active' => in_array($activeAction, ['domains', 'records', 'index'], true),
             ],
             [
                 'id' => 'tokens',

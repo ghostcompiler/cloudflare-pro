@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import {
   Button,
+  ButtonGroup,
   Drawer,
   FormFieldPassword,
   FormFieldText,
@@ -11,6 +12,7 @@ import {
   List,
   ListEmptyView,
   Pagination,
+  SearchBar,
   Status,
   Switch,
   Toaster,
@@ -104,6 +106,589 @@ function EmptyList({ title, description, actions }) {
         />
       }
     />
+  );
+}
+
+function linkedStatus(status) {
+  switch (status) {
+    case 'active':
+    case 'synced':
+      return { intent: 'success', label: status === 'synced' ? 'Synced' : 'Linked' };
+    case 'pending':
+    case 'linked':
+      return { intent: 'info', label: status === 'pending' ? 'Pending' : 'Linked' };
+    case 'error':
+      return { intent: 'danger', label: 'Error' };
+    default:
+      return { intent: 'inactive', label: status || 'Inactive' };
+  }
+}
+
+function recordStatus(status) {
+  switch (status) {
+    case 'synced':
+      return { intent: 'success', label: 'Synced' };
+    case 'mismatch':
+      return { intent: 'warning', label: 'Mismatch' };
+    case 'cloudflare_only':
+      return { intent: 'info', label: 'Cloudflare only' };
+    default:
+      return { intent: 'inactive', label: 'Not synced' };
+  }
+}
+
+function RecordValue({ row }) {
+  if (row.status === 'mismatch') {
+    return (
+      <div className="gc-record-values">
+        <div className="gc-record-value-row">
+          <Icon name="server" />
+          <span>{'Plesk'}</span>
+          <code>{row.local_content}</code>
+        </div>
+        <div className="gc-record-value-row">
+          <Icon name="cloud" />
+          <span>{'Cloudflare'}</span>
+          <code>{row.cloudflare_content}</code>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <code className="gc-record-single-value">
+      {row.has_local ? row.local_content : row.cloudflare_content}
+    </code>
+  );
+}
+
+function appendParam(url, key, value) {
+  const glue = url.includes('?') ? '&' : '?';
+  return `${url}${glue}${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
+}
+
+function matchesSearch(item, query, fields) {
+  const term = String(query || '').trim().toLowerCase();
+  if (!term) {
+    return true;
+  }
+
+  return fields.some(field => {
+    const value = typeof field === 'function' ? field(item) : item[field];
+    return String(value ?? '').toLowerCase().includes(term);
+  });
+}
+
+function DomainApp({ syncAction, autosyncAction, recordsAction, initialDomains }) {
+  const [domains, setDomains] = useState(initialDomains);
+  const [toasts, setToasts] = useState([]);
+  const [busy, setBusy] = useState('');
+  const listTarget = document.getElementById('gc-domain-list');
+
+  const notify = (intent, message) => {
+    const key = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    setToasts(current => [
+      { key, intent, message, autoClosable: intent === 'success', closable: true },
+      ...current,
+    ].slice(0, 5));
+  };
+
+  const syncDomain = async (domain, mode = 'sync') => {
+    if (mode === 'import') {
+      notify('info', 'Import is not enabled yet. This setup currently pushes Plesk DNS records to Cloudflare.');
+      return;
+    }
+
+    setBusy(`${mode}-${domain.id}`);
+    try {
+      const payload = await postAction(syncAction, { link_id: domain.id, mode });
+      setDomains(payload.domains || []);
+      const created = payload.result?.created ?? 0;
+      notify('success', `${mode === 'export' ? 'Exported' : 'Synced'} ${created} DNS record${created === 1 ? '' : 's'} to Cloudflare.`);
+    } catch (error) {
+      if (error.payload?.domains) {
+        setDomains(error.payload.domains);
+      }
+      notify('danger', error.message);
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const toggleAutoSync = async (domain, value) => {
+    const previous = domains;
+    setDomains(current => current.map(item => (
+      item.id === domain.id ? { ...item, auto_sync: value ? '1' : '0' } : item
+    )));
+    setBusy(`autosync-${domain.id}`);
+
+    try {
+      const payload = await postAction(autosyncAction, {
+        link_id: domain.id,
+        auto_sync: value ? '1' : '0',
+      });
+      setDomains(payload.domains || []);
+      notify('success', value ? 'Auto Sync enabled.' : 'Auto Sync disabled.');
+    } catch (error) {
+      setDomains(previous);
+      notify('danger', error.message);
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const syncAll = async () => {
+    if (!domains.length) {
+      return;
+    }
+
+    let current = domains;
+    let ok = 0;
+    let failed = 0;
+    setBusy('sync-all');
+
+    for (const domain of domains) {
+      try {
+        const payload = await postAction(syncAction, { link_id: domain.id });
+        current = payload.domains || current;
+        ok += 1;
+      } catch (error) {
+        failed += 1;
+        if (error.payload?.domains) {
+          current = error.payload.domains;
+        }
+      }
+    }
+
+    setDomains(current);
+    setBusy('');
+    if (failed) {
+      notify('warning', `${ok} synced, ${failed} failed. Check API Logs for details.`);
+    } else {
+      notify('success', `${ok} linked domain${ok === 1 ? '' : 's'} synced.`);
+    }
+  };
+
+  const columns = [
+    {
+      key: 'domain_name',
+      title: 'Domain',
+      type: 'title',
+      width: '26%',
+      truncate: true,
+      render: row => <Link component="span">{row.domain_name}</Link>,
+    },
+    {
+      key: 'token_name',
+      title: 'Token',
+      width: '18%',
+      truncate: true,
+    },
+    {
+      key: 'zone_name',
+      title: 'Cloudflare zone',
+      width: '22%',
+      truncate: true,
+    },
+    {
+      key: 'status',
+      title: 'Status',
+      width: '12%',
+      type: 'controls',
+      render: row => {
+        const status = linkedStatus(row.status);
+        return (
+          <Status intent={status.intent} compact>
+            {status.label}
+          </Status>
+        );
+      },
+    },
+    {
+      key: 'last_synced_at',
+      title: 'Last synced',
+      width: '14%',
+      render: row => row.last_synced_at || '-',
+    },
+    {
+      key: 'auto_sync',
+      title: 'Auto Sync',
+      width: '12%',
+      type: 'controls',
+      render: row => (
+        <Switch
+          checked={row.auto_sync === true || row.auto_sync === 1 || row.auto_sync === '1'}
+          loading={busy === `autosync-${row.id}`}
+          onChange={value => toggleAutoSync(row, value)}
+          aria-label={`Auto Sync ${row.domain_name}`}
+        />
+      ),
+    },
+    {
+      key: 'actions',
+      title: 'Actions',
+      type: 'actions',
+      width: '18%',
+      render: row => (
+        <ButtonGroup>
+          <Button
+            icon="eye"
+            arrow="backward"
+            onClick={() => { window.location.href = appendParam(recordsAction, 'link_id', row.id); }}
+          >
+            {'View'}
+          </Button>
+          <Button
+            icon="arrow-up-tray"
+            intent="success"
+            onClick={() => syncDomain(row, 'export')}
+            state={busy === `export-${row.id}` ? 'loading' : undefined}
+          >
+            {'Export'}
+          </Button>
+          <Button
+            icon="arrow-down-tray"
+            intent="warning"
+            onClick={() => syncDomain(row, 'import')}
+          >
+            {'Import'}
+          </Button>
+          <Button
+            icon="reload"
+            arrow="forward"
+            intent="primary"
+            onClick={() => syncDomain(row, 'sync')}
+            state={busy === `sync-${row.id}` ? 'loading' : undefined}
+          >
+            {'Sync'}
+          </Button>
+        </ButtonGroup>
+      ),
+    },
+  ];
+
+  const data = domains.map(domain => ({
+    ...domain,
+    key: String(domain.id),
+  }));
+
+  return (
+    <>
+      <Toaster
+        toasts={toasts}
+        position="top-end"
+        onToastClose={key => setToasts(current => current.filter(toast => toast.key !== key))}
+      />
+      <Button
+        arrow="forward"
+        intent="primary"
+        onClick={syncAll}
+        disabled={!domains.length}
+        state={busy === 'sync-all' ? 'loading' : undefined}
+      >
+        {'Sync All'}
+      </Button>
+      {listTarget &&
+        createPortal(
+          <List
+            columns={columns}
+            data={data}
+            rowKey="key"
+            emptyView={
+              <ListEmptyView
+                title="No linked Cloudflare domains yet"
+                description="Add a valid token with access to zones matching your Plesk domains."
+              />
+            }
+          />,
+          listTarget
+        )}
+    </>
+  );
+}
+
+function RecordsApp({ proxyAction, syncAction, recordAction, domain, initialRecords }) {
+  const target = document.getElementById('gc-records-list');
+  const [records, setRecords] = useState(initialRecords);
+  const [toasts, setToasts] = useState([]);
+  const [busy, setBusy] = useState('');
+  const [sortDirection, setSortDirection] = useState('asc');
+  const [page, setPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(25);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const notify = (intent, message) => {
+    const key = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    setToasts(current => [
+      { key, intent, message, autoClosable: intent === 'success', closable: true },
+      ...current,
+    ].slice(0, 5));
+  };
+
+  const toggleProxy = async (row, value) => {
+    setBusy(row.cloudflare_id);
+    try {
+      const payload = await postAction(proxyAction, {
+        link_id: domain.id,
+        record_id: row.cloudflare_id,
+        proxied: value ? '1' : '0',
+      });
+      setRecords(payload.records || []);
+      notify('success', 'Proxy updated.');
+    } catch (error) {
+      notify('danger', error.message);
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const syncAllRecords = async () => {
+    setBusy('sync-all-records');
+    try {
+      await postAction(syncAction, { link_id: domain.id, mode: 'sync' });
+      const payload = await postAction(recordAction, {
+        link_id: domain.id,
+        direction: 'refresh',
+        record_key: 'refresh',
+      });
+      setRecords(payload.records || []);
+      notify('success', 'All records synced.');
+    } catch (error) {
+      notify('danger', error.message);
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const runRecordAction = async (row, direction) => {
+    const key = direction === 'pull' ? row.cloudflare_key : (row.local_key || row.cloudflare_key);
+    if (direction === 'delete' && !window.confirm(`Delete DNS record "${row.name}" from Plesk and Cloudflare?`)) {
+      return;
+    }
+
+    setBusy(`${direction}-${key}`);
+    try {
+      const payload = await postAction(recordAction, {
+        link_id: domain.id,
+        direction,
+        record_key: key,
+      });
+      setRecords(payload.records || []);
+      notify('success', direction === 'delete' ? 'Record deleted.' : (direction === 'pull' ? 'Record pulled.' : 'Record pushed.'));
+    } catch (error) {
+      notify('danger', error.message);
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const columns = [
+    {
+      key: 'type',
+      title: (
+        <Button
+          ghost
+          icon={sortDirection === 'asc' ? 'arrow-up' : 'arrow-down'}
+          onClick={() => setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')}
+        >
+          {'Type'}
+        </Button>
+      ),
+      width: '8%',
+      render: row => <Status intent="info" compact>{row.type}</Status>,
+    },
+    {
+      key: 'name',
+      title: 'Name',
+      type: 'title',
+      width: '22%',
+      truncate: true,
+      render: row => <Link component="span">{row.name}</Link>,
+    },
+    {
+      key: 'status',
+      title: 'Status',
+      width: '13%',
+      type: 'controls',
+      render: row => {
+        const status = recordStatus(row.status);
+        return <Status intent={status.intent} compact>{status.label}</Status>;
+      },
+    },
+    {
+      key: 'record',
+      title: 'Record',
+      width: '42%',
+      render: row => <RecordValue row={row} />,
+    },
+    {
+      key: 'proxy',
+      title: 'Proxy',
+      width: '6%',
+      render: row => {
+        if (!row.can_proxy) {
+          return '-';
+        }
+        return (
+          <Switch
+            checked={Boolean(row.cloudflare_proxied)}
+            loading={busy === row.cloudflare_id}
+            onChange={value => toggleProxy(row, value)}
+            aria-label={`Proxy ${row.name}`}
+          />
+        );
+      },
+    },
+    {
+      key: 'actions',
+      title: 'Actions',
+      type: 'actions',
+      width: '10%',
+      render: row => (
+        <ButtonGroup className="gc-record-actions">
+          {row.has_local ? (
+            <Button
+              icon="arrow-up-tray"
+              arrow="backward"
+              intent="success"
+              title="Push"
+              aria-label={`Push ${row.name}`}
+              onClick={() => runRecordAction(row, 'push')}
+              state={busy === `push-${row.local_key}` ? 'loading' : undefined}
+            />
+          ) : null}
+          {row.has_cloudflare ? (
+            <Button
+              icon="arrow-down-tray"
+              intent="primary"
+              title="Pull"
+              aria-label={`Pull ${row.name}`}
+              onClick={() => runRecordAction(row, 'pull')}
+              state={busy === `pull-${row.cloudflare_key}` ? 'loading' : undefined}
+            />
+          ) : null}
+          {(row.has_local || row.has_cloudflare) ? (
+            <Button
+              icon={<Icon name="recycle" intent="danger" />}
+              arrow="forward"
+              intent="danger"
+              title="Delete"
+              aria-label={`Delete ${row.name}`}
+              onClick={() => runRecordAction(row, 'delete')}
+              state={busy === `delete-${row.local_key || row.cloudflare_key}` ? 'loading' : undefined}
+            />
+          ) : null}
+        </ButtonGroup>
+      ),
+    },
+  ];
+
+  const filteredRecords = records.filter(record => matchesSearch(record, searchQuery, [
+    'type',
+    'name',
+    'status',
+    'local_content',
+    'cloudflare_content',
+  ]));
+  const sortedRecords = [...filteredRecords]
+    .sort((left, right) => {
+      const type = left.type.localeCompare(right.type);
+      if (type !== 0) {
+        return sortDirection === 'asc' ? type : -type;
+      }
+
+      return left.name.localeCompare(right.name);
+    });
+  const totalPages = itemsPerPage === 'all' ? 1 : Math.max(1, Math.ceil(sortedRecords.length / itemsPerPage));
+  const currentPage = Math.min(page, totalPages);
+  const visibleRecords = itemsPerPage === 'all'
+    ? sortedRecords
+    : sortedRecords.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+  const data = visibleRecords
+    .map((record, index) => ({
+      ...record,
+      key: `${record.type}-${record.name}-${index}`,
+    }));
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
+
+  const list = target ? createPortal(
+    <>
+      <List
+        columns={columns}
+        data={data}
+        rowKey="key"
+        pagination={sortedRecords.length ? (
+          <Pagination
+            total={totalPages}
+            current={currentPage}
+            onSelect={setPage}
+            itemsPerPage={itemsPerPage}
+            itemsPerPageOptions={[25, 50, 100, 'all']}
+            onItemsPerPageChange={value => {
+              setItemsPerPage(value);
+              setPage(1);
+            }}
+          />
+        ) : undefined}
+        emptyView={
+          <ListEmptyView
+            title="No DNS records found"
+            description="DNS records will appear here after they are available in Plesk or Cloudflare."
+          />
+        }
+      />
+    </>,
+    target
+  ) : null;
+
+  return (
+    <>
+      <Toaster
+        toasts={toasts}
+        position="top-end"
+        onToastClose={key => setToasts(current => current.filter(toast => toast.key !== key))}
+      />
+      <div className="gc-list-toolbar">
+        <SearchBar
+          inputProps={{
+            value: searchQuery,
+            placeholder: 'Search records',
+          }}
+          onTyping={value => {
+            setSearchQuery(value);
+            setPage(1);
+          }}
+          onSearch={value => {
+            setSearchQuery(value);
+            setPage(1);
+          }}
+        />
+      </div>
+      <ButtonGroup>
+        <Button
+          arrow="backward"
+          icon="arrow-left"
+          onClick={() => window.history.back()}
+        >
+          {'Back'}
+        </Button>
+        <Button
+          arrow="forward"
+          intent="primary"
+          icon={<Icon name="reload" />}
+          onClick={syncAllRecords}
+          state={busy === 'sync-all-records' ? 'loading' : undefined}
+        >
+          {'Sync All'}
+        </Button>
+      </ButtonGroup>
+      {list}
+    </>
   );
 }
 
@@ -464,7 +1049,8 @@ function LogsApp({ clearAction, initialLogs }) {
   const [busy, setBusy] = useState('');
   const [selectedLog, setSelectedLog] = useState(null);
   const [page, setPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(25);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [searchQuery, setSearchQuery] = useState('');
   const listTarget = document.getElementById('gc-api-log-list');
 
   const notify = (intent, message) => {
@@ -494,10 +1080,21 @@ function LogsApp({ clearAction, initialLogs }) {
     notify('success', 'Request and response copied.');
   };
 
-  const rows = logs.map(log => ({
-    ...log,
-    key: String(log.id),
-  }));
+  const rows = logs
+    .filter(log => matchesSearch(log, searchQuery, [
+      'created_at',
+      'route',
+      'method',
+      'status_code',
+      'duration_ms',
+      'error',
+      log => JSON.stringify(log.request ?? ''),
+      log => JSON.stringify(log.response ?? ''),
+    ]))
+    .map(log => ({
+      ...log,
+      key: String(log.id),
+    }));
   const totalPages = itemsPerPage === 'all' ? 1 : Math.max(1, Math.ceil(rows.length / itemsPerPage));
   const currentPage = Math.min(page, totalPages);
   const visibleRows = itemsPerPage === 'all'
@@ -551,7 +1148,7 @@ function LogsApp({ clearAction, initialLogs }) {
       render: row => (
         <div className="gc-api-log-actions">
           <Button
-            icon={<Icon name="magnifier" />}
+            icon="eye"
             ghost
             onClick={() => setSelectedLog(row)}
             title="View"
@@ -576,6 +1173,22 @@ function LogsApp({ clearAction, initialLogs }) {
         position="top-end"
         onToastClose={key => setToasts(current => current.filter(toast => toast.key !== key))}
       />
+      <div className="gc-list-toolbar">
+        <SearchBar
+          inputProps={{
+            value: searchQuery,
+            placeholder: 'Search API logs',
+          }}
+          onTyping={value => {
+            setSearchQuery(value);
+            setPage(1);
+          }}
+          onSearch={value => {
+            setSearchQuery(value);
+            setPage(1);
+          }}
+        />
+      </div>
       <Button
         arrow="forward"
         intent="primary"
@@ -593,14 +1206,13 @@ function LogsApp({ clearAction, initialLogs }) {
               data={visibleRows}
               rowKey="key"
               className="gc-api-log-list"
-              totalRows={rows.length}
               pagination={rows.length ? (
                 <Pagination
                   total={totalPages}
                   current={currentPage}
                   onSelect={setPage}
                   itemsPerPage={itemsPerPage}
-                  itemsPerPageOptions={[25, 50, 100, 'all']}
+                  itemsPerPageOptions={[10, 25, 50, 100, 'all']}
                   onItemsPerPageChange={value => {
                     setItemsPerPage(value);
                     setPage(1);
@@ -887,6 +1499,24 @@ function parseLogs(value) {
   }
 }
 
+function parseDomains(value) {
+  try {
+    const data = JSON.parse(value || '[]');
+    return Array.isArray(data) ? data : [];
+  } catch (error) {
+    return [];
+  }
+}
+
+function parseRecords(value) {
+  try {
+    const data = JSON.parse(value || '[]');
+    return Array.isArray(data) ? data : [];
+  } catch (error) {
+    return [];
+  }
+}
+
 function EmptyApp({ title, description }) {
   const target = document.getElementById('gc-empty-list');
 
@@ -897,6 +1527,33 @@ function EmptyApp({ title, description }) {
   return createPortal(
     <EmptyList title={title} description={description} />,
     target
+  );
+}
+
+const domainRootElement = document.getElementById('gc-domain-app');
+
+if (domainRootElement) {
+  createRoot(domainRootElement).render(
+    <DomainApp
+      syncAction={domainRootElement.dataset.syncDomainAction}
+      autosyncAction={domainRootElement.dataset.autosyncAction}
+      recordsAction={domainRootElement.dataset.recordsAction}
+      initialDomains={parseDomains(domainRootElement.dataset.domains)}
+    />
+  );
+}
+
+const recordsRootElement = document.getElementById('gc-records-app');
+
+if (recordsRootElement) {
+  createRoot(recordsRootElement).render(
+    <RecordsApp
+      proxyAction={recordsRootElement.dataset.proxyAction}
+      syncAction={recordsRootElement.dataset.syncAction}
+      recordAction={recordsRootElement.dataset.recordAction}
+      domain={parseSettings(recordsRootElement.dataset.domain)}
+      initialRecords={parseRecords(recordsRootElement.dataset.records)}
+    />
   );
 }
 

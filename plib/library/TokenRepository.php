@@ -83,6 +83,27 @@ class Modules_CloudflarePro_TokenRepository
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
+    public function activeWithSecrets()
+    {
+        $stmt = $this->db->prepare(
+            'SELECT id, name, token, status
+             FROM tokens WHERE owner_id = :owner_id AND status = :status ORDER BY id DESC'
+        );
+        $stmt->execute([
+            ':owner_id' => $this->owner['id'],
+            ':status' => 'active',
+        ]);
+
+        $tokens = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $row['secret'] = pm_Crypt::decrypt($row['token']);
+            unset($row['token']);
+            $tokens[] = $row;
+        }
+
+        return $tokens;
+    }
+
     public function find($id)
     {
         $stmt = $this->db->prepare(

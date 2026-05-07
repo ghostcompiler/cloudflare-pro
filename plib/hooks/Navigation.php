@@ -14,7 +14,14 @@ class Modules_CloudflarePro_Navigation extends pm_Hook_Navigation
             [
                 'controller' => 'index',
                 'action' => 'domains',
+                'label' => 'Cloudflare Pro',
+                'tabbed' => true,
                 'pages' => [
+                    [
+                        'controller' => 'index',
+                        'action' => 'records',
+                        'label' => 'Domain',
+                    ],
                     [
                         'controller' => 'index',
                         'action' => 'tokens',
