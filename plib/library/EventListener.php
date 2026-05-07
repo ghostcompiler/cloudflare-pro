@@ -11,15 +11,7 @@ class Modules_CloudflarePro_EventListener implements EventListener
 {
     public function filterActions()
     {
-        return [
-            'domain_create',
-            'domain_update',
-            'domain_dns_update',
-            'site_create',
-            'site_update',
-            'subdomain_create',
-            'subdomain_update',
-        ];
+        return [];
     }
 
     public function handleEvent($objectType, $objectId, $action, $oldValues, $newValues)
@@ -35,10 +27,12 @@ class Modules_CloudflarePro_EventListener implements EventListener
             $domainName = $this->value($newValues, $oldValues, [
                 'domain_name',
                 'Domain name',
+                'Domain Name',
                 'domain',
                 'Domain',
                 'site_name',
                 'Site name',
+                'Site Name',
                 'NEW_DOMAIN_NAME',
                 'OLD_DOMAIN_NAME',
             ]);
@@ -50,6 +44,7 @@ class Modules_CloudflarePro_EventListener implements EventListener
                 $subdomainName = $this->value($newValues, $oldValues, [
                     'subdomain_name',
                     'Subdomain name',
+                    'Subdomain Name',
                     'subdomain',
                     'Subdomain',
                     'name',
@@ -66,7 +61,17 @@ class Modules_CloudflarePro_EventListener implements EventListener
             }
 
             if ('' === $hostName) {
-                error_log('Cloudflare Pro autosync skipped: no host name for action ' . $action . ', object=' . $objectType . ', id=' . $objectId);
+                $hostName = $this->firstDomainLikeValue($newValues, $oldValues);
+                $sourceDomainName = $hostName;
+            }
+
+            if ('' === $hostName) {
+                error_log(
+                    'Cloudflare Pro autosync skipped: no host name for action ' . $action .
+                    ', object=' . $objectType .
+                    ', id=' . $objectId .
+                    ', keys=' . implode(',', array_unique(array_merge(array_keys($newValues), array_keys($oldValues))))
+                );
                 return;
             }
 
@@ -84,7 +89,10 @@ class Modules_CloudflarePro_EventListener implements EventListener
             if (false !== strpos($value, 'domain_dns') ||
                 false !== strpos($value, 'domain') ||
                 false !== strpos($value, 'site') ||
-                false !== strpos($value, 'subdomain')) {
+                false !== strpos($value, 'subdomain') ||
+                false !== strpos($value, 'dns') ||
+                false !== strpos($value, 'zone') ||
+                false !== strpos($value, 'record')) {
                 return true;
             }
         }
@@ -110,10 +118,34 @@ class Modules_CloudflarePro_EventListener implements EventListener
 
     private function value(array $newValues, array $oldValues, array $keys)
     {
+        $wanted = [];
+        foreach ($keys as $key) {
+            $wanted[$this->normalizeKey($key)] = true;
+        }
+
         foreach ([$newValues, $oldValues] as $values) {
-            foreach ($keys as $key) {
-                if (isset($values[$key]) && '' !== trim((string) $values[$key])) {
-                    return strtolower(rtrim(trim((string) $values[$key]), '.'));
+            foreach ($values as $key => $value) {
+                if (isset($wanted[$this->normalizeKey($key)]) && '' !== trim((string) $value)) {
+                    return strtolower(rtrim(trim((string) $value), '.'));
+                }
+            }
+        }
+
+        return '';
+    }
+
+    private function normalizeKey($key)
+    {
+        return preg_replace('/[^a-z0-9]+/', '', strtolower((string) $key));
+    }
+
+    private function firstDomainLikeValue(array $newValues, array $oldValues)
+    {
+        foreach ([$newValues, $oldValues] as $values) {
+            foreach ($values as $value) {
+                $value = strtolower(rtrim(trim((string) $value), '.'));
+                if (preg_match('/^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/', $value)) {
+                    return $value;
                 }
             }
         }
