@@ -1,0 +1,12 @@
+{
+  "id": "cloudflare-pro",
+  "name": "Cloudflare Pro",
+  "brand": "Ghost Compiler",
+  "version": "1.0.0",
+  "release": "1",
+  "entry": "htdocs/index.php",
+  "minimumPlesk": "18.0.0",
+  "php": ">=7.2",
+  "linuxOnly": false,
+  "database": "SQLite in the Plesk module var directory"
+}

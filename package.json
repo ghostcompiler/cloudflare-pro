@@ -4,7 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vite build"
+    "build": "vite build",
+    "test": "npm run test:build && npm run test:docs",
+    "test:build": "npm run build",
+    "test:docs": "node scripts/validate-docs.cjs",
+    "package": "sh packaging/build.sh"
   },
   "dependencies": {
     "@plesk/ui-library": "3.46.5",
