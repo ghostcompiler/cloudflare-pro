@@ -10,7 +10,7 @@ class CloudflarePro_DomainSyncService
 
     public function __construct(array $owner = null)
     {
-        $this->cloudflare = new CloudflarePro_CloudflareClient();
+        $this->cloudflare = new CloudflarePro_CloudflareClient(new Modules_CloudflarePro_ApiLogRepository($owner));
         $this->tokens = new Modules_CloudflarePro_TokenRepository($owner);
         $this->domains = new Modules_CloudflarePro_DomainRepository($owner);
         $this->settings = new Modules_CloudflarePro_SettingsRepository($owner);
