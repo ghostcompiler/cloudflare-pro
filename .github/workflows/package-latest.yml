@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - beta
   workflow_dispatch:
 
 permissions:
@@ -69,34 +70,52 @@ jobs:
           sh -n packaging/build.sh
 
       - name: Build latest ZIP
+        id: package
         run: |
           version="${{ steps.version.outputs.version }}"
           release="${{ steps.version.outputs.release }}"
+          channel="${GITHUB_REF_NAME}"
+          asset="cloudflare-pro.zip"
+          release_tag="latest"
+
+          if [ "$channel" = "beta" ]; then
+            asset="cloudflare-pro-beta.zip"
+            release_tag="latest-beta"
+          fi
+
           sh packaging/build.sh
           zip -T "cloudflare-pro-${version}-${release}.zip"
-          cp "cloudflare-pro-${version}-${release}.zip" cloudflare-pro.zip
+          cp "cloudflare-pro-${version}-${release}.zip" "$asset"
+          echo "asset=$asset" >> "$GITHUB_OUTPUT"
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
 
       - name: Prepare latest release notes
         run: |
+          release_tag="${{ steps.package.outputs.release_tag }}"
+          asset="${{ steps.package.outputs.asset }}"
+          channel="${{ steps.package.outputs.channel }}"
           cat > latest-release-notes.md <<EOF
-          Rolling latest package for Cloudflare Pro.
+          Rolling ${channel} package for Cloudflare Pro.
 
           Version: ${{ steps.version.outputs.version }}-${{ steps.version.outputs.release }}
           Commit: ${GITHUB_SHA}
+          Branch: ${channel}
 
           Install with:
 
           \`\`\`sh
-          plesk bin extension --install-url https://github.com/${GITHUB_REPOSITORY}/releases/download/latest/cloudflare-pro.zip
+          plesk bin extension --install-url https://github.com/${GITHUB_REPOSITORY}/releases/download/${release_tag}/${asset}
           \`\`\`
           EOF
 
-      - name: Move latest tag
+      - name: Move rolling tag
         run: |
+          release_tag="${{ steps.package.outputs.release_tag }}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -f latest "$GITHUB_SHA"
-          git push origin refs/tags/latest --force
+          git tag -f "$release_tag" "$GITHUB_SHA"
+          git push origin "refs/tags/${release_tag}" --force
 
       - name: Publish latest package
         env:
@@ -104,12 +123,15 @@ jobs:
         run: |
           version="${{ steps.version.outputs.version }}"
           release="${{ steps.version.outputs.release }}"
-          title="Cloudflare Pro latest (v${version}-${release})"
-          if gh release view latest >/dev/null 2>&1; then
-            gh release upload latest cloudflare-pro.zip --clobber
-            gh release edit latest --title "$title" --notes-file latest-release-notes.md --prerelease
+          release_tag="${{ steps.package.outputs.release_tag }}"
+          asset="${{ steps.package.outputs.asset }}"
+          channel="${{ steps.package.outputs.channel }}"
+          title="Cloudflare Pro ${channel} (v${version}-${release})"
+          if gh release view "$release_tag" >/dev/null 2>&1; then
+            gh release upload "$release_tag" "$asset" --clobber
+            gh release edit "$release_tag" --title "$title" --notes-file latest-release-notes.md --prerelease
           else
-            gh release create latest cloudflare-pro.zip \
+            gh release create "$release_tag" "$asset" \
               --title "$title" \
               --notes-file latest-release-notes.md \
               --prerelease

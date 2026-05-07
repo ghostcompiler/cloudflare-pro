@@ -146,6 +146,14 @@ plesk bin extension --install-url https://github.com/ghostcompiler/cloudflare-pr
 
 This URL points to the rolling `latest` pre-release asset. The **Package Latest** workflow rebuilds `cloudflare-pro.zip` from the current `main` branch on every push and whenever it is started manually.
 
+Install the beta runner-built package from the `beta` branch:
+
+```sh
+plesk bin extension --install-url https://github.com/ghostcompiler/cloudflare-pro/releases/download/latest-beta/cloudflare-pro-beta.zip
+```
+
+The beta URL points to the rolling `latest-beta` pre-release asset. The same workflow rebuilds `cloudflare-pro-beta.zip` from the current `beta` branch on every push.
+
 Pinned version installs are available after publishing a versioned release:
 
 ```sh
@@ -190,7 +198,7 @@ zip -T cloudflare-pro-1.0.0-1.zip
 GitHub Actions runners are included:
 
 - **CI** runs on every branch push, pull request, and manual dispatch. It validates PHP, frontend build, docs, metadata, packaging script, ZIP build, and uploads package artifacts.
-- **Package Latest** runs on `main` and manual dispatch. It builds and publishes `cloudflare-pro.zip` to the rolling `latest` GitHub pre-release.
+- **Package Latest** runs on `main`, `beta`, and manual dispatch. It publishes `cloudflare-pro.zip` to `latest` from `main`, and `cloudflare-pro-beta.zip` to `latest-beta` from `beta`.
 - **Release** runs on `v<version>` tags and manual dispatch. It verifies the tag matches `meta.xml`, builds `cloudflare-pro-<version>-<release>.zip`, and publishes the versioned release.
 - **Pages** runs when docs change on `main` and manual dispatch. It validates the `docs/` folder and deploys it to GitHub Pages.
 

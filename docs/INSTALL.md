@@ -18,6 +18,17 @@ plesk bin extension --install-url https://github.com/ghostcompiler/cloudflare-pr
 The `latest` release is maintained by `.github/workflows/package-latest.yml`.
 It rebuilds `cloudflare-pro.zip` from `main` on every push and when the workflow is started manually.
 
+## Install Beta
+
+Install the beta runner-built package from the `beta` branch:
+
+```sh
+plesk bin extension --install-url https://github.com/ghostcompiler/cloudflare-pro/releases/download/latest-beta/cloudflare-pro-beta.zip
+```
+
+The `latest-beta` release is maintained by the same package workflow.
+It rebuilds `cloudflare-pro-beta.zip` from `beta` on every push.
+
 ## Install Pinned Version
 
 After publishing a versioned release:
@@ -74,7 +85,7 @@ zip -T cloudflare-pro-1.0.0-1.zip
 ## GitHub Runners
 
 - **CI** validates PHP, JavaScript, docs, metadata, packaging, and ZIP integrity.
-- **Package Latest** publishes `cloudflare-pro.zip` to the rolling `latest` pre-release.
+- **Package Latest** publishes `cloudflare-pro.zip` to the rolling `latest` pre-release from `main`, and `cloudflare-pro-beta.zip` to the rolling `latest-beta` pre-release from `beta`.
 - **Release** publishes `cloudflare-pro-<version>-<release>.zip` for `v<version>` tags.
 - **Pages** deploys the `docs/` folder to GitHub Pages.
 

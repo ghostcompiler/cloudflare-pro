@@ -95,6 +95,8 @@
       <h2>Install</h2>
       <pre><code>plesk bin extension --install-url https://github.com/ghostcompiler/cloudflare-pro/releases/download/latest/cloudflare-pro.zip</code></pre>
       <p>The latest package is built by GitHub Actions and published as a pre-release asset.</p>
+      <pre><code>plesk bin extension --install-url https://github.com/ghostcompiler/cloudflare-pro/releases/download/latest-beta/cloudflare-pro-beta.zip</code></pre>
+      <p>The beta package is built from the beta branch and published as <code>cloudflare-pro-beta.zip</code>.</p>
     </section>
 
     <section>
@@ -111,7 +113,7 @@
       <h2>Runner Workflows</h2>
       <ul>
         <li>CI validates PHP, frontend build, docs, metadata, packaging, and ZIP integrity.</li>
-        <li>Package Latest publishes <code>cloudflare-pro.zip</code> to the rolling <code>latest</code> pre-release.</li>
+        <li>Package Latest publishes <code>cloudflare-pro.zip</code> to <code>latest</code> from main, and <code>cloudflare-pro-beta.zip</code> to <code>latest-beta</code> from beta.</li>
         <li>Release publishes versioned ZIP assets for <code>v&lt;version&gt;</code> tags.</li>
         <li>Pages deploys this documentation folder to GitHub Pages.</li>
       </ul>
