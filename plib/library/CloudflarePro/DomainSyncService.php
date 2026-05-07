@@ -440,6 +440,8 @@ class CloudflarePro_DomainSyncService
             $this->cloudflare->createDnsRecord($token, $link['zone_id'], $target);
         }
 
+        $this->domains->markSynced($link['id'], 1);
+
         return $this->recordsForLink($linkId);
     }
 
@@ -463,6 +465,8 @@ class CloudflarePro_DomainSyncService
 
         $this->plesk->removeByNameType($link['domain_id'], $target['name'], $target['type']);
         $this->plesk->createRecordForDomainId($link['domain_id'], $target);
+
+        $this->domains->markSynced($link['id'], 1);
 
         return $this->recordsForLink($linkId);
     }
@@ -508,6 +512,8 @@ class CloudflarePro_DomainSyncService
                 $this->cloudflare->deleteDnsRecord($token, $link['zone_id'], $record['id']);
             }
         }
+
+        $this->domains->markSynced($link['id'], 1);
 
         return $this->recordsForLink($linkId);
     }

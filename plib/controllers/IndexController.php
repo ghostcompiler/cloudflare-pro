@@ -30,6 +30,9 @@ class IndexController extends pm_Controller_Action
         $service = new CloudflarePro_DomainSyncService();
         $this->view->domains = $service->linkedDomains();
         $this->view->syncDomainAction = pm_Context::getActionUrl('index', 'sync-domain');
+        $this->view->startSyncJobAction = pm_Context::getActionUrl('index', 'start-sync-job');
+        $this->view->processSyncJobAction = pm_Context::getActionUrl('index', 'process-sync-job');
+        $this->view->syncJobStatusAction = pm_Context::getActionUrl('index', 'sync-job-status');
         $this->view->toggleAutosyncAction = pm_Context::getActionUrl('index', 'toggle-autosync');
         $this->view->recordsAction = pm_Context::getActionUrl('index', 'records');
 
@@ -180,6 +183,7 @@ class IndexController extends pm_Controller_Action
 
                 return $this->jsonResponse(true, 'Sync job completed.', array_merge($repository->response($job), [
                     'records' => $data['records'],
+                    'domains' => $service->linkedDomains(),
                 ]));
             }
 
@@ -212,6 +216,7 @@ class IndexController extends pm_Controller_Action
             if ('done' === $status) {
                 $data = $service->recordsForLink($job['link_id']);
                 $response['records'] = $data['records'];
+                $response['domains'] = $service->linkedDomains();
             }
 
             return $this->jsonResponse(true, 'Sync job updated.', $response);

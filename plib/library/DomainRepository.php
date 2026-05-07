@@ -144,6 +144,11 @@ class Modules_CloudflarePro_DomainRepository
         $existing = $this->findExisting($link['domain_id'], $link['token_id']);
 
         if ($existing) {
+            $status = isset($link['status']) ? $link['status'] : 'linked';
+            if ('active' === $status && ('synced' === $existing['status'] || !empty($existing['last_synced_at']))) {
+                $status = 'synced';
+            }
+
             $stmt = $this->db->prepare(
                 'UPDATE domain_links
                  SET domain_name = :domain_name,
@@ -161,7 +166,7 @@ class Modules_CloudflarePro_DomainRepository
                 ':token_name' => $link['token_name'],
                 ':zone_id' => $link['zone_id'],
                 ':zone_name' => $link['zone_name'],
-                ':status' => isset($link['status']) ? $link['status'] : 'linked',
+                ':status' => $status,
                 ':last_discovered_at' => $now,
                 ':updated_at' => $now,
                 ':id' => (int) $existing['id'],
@@ -305,7 +310,7 @@ class Modules_CloudflarePro_DomainRepository
     private function findExisting($domainId, $tokenId)
     {
         $stmt = $this->db->prepare(
-            'SELECT id FROM domain_links
+            'SELECT id, status, last_synced_at FROM domain_links
              WHERE owner_id = :owner_id AND domain_id = :domain_id AND token_id = :token_id'
         );
         $stmt->execute([

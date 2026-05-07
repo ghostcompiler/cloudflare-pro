@@ -139,6 +139,25 @@ function recordStatus(status) {
   }
 }
 
+function LastSynced({ value }) {
+  if (!value) {
+    return (
+      <Status intent="inactive" compact>
+        {'Not synced'}
+      </Status>
+    );
+  }
+
+  return (
+    <span className="gc-last-synced">
+      <Status intent="success" compact>
+        {'Synced'}
+      </Status>
+      <span>{value}</span>
+    </span>
+  );
+}
+
 function RecordValue({ row }) {
   if (row.status === 'mismatch') {
     return (
@@ -181,10 +200,12 @@ function matchesSearch(item, query, fields) {
   });
 }
 
-function DomainApp({ syncAction, autosyncAction, recordsAction, initialDomains }) {
+function DomainApp({ syncAction, startSyncJobAction, processSyncJobAction, syncJobStatusAction, autosyncAction, recordsAction, initialDomains }) {
   const [domains, setDomains] = useState(initialDomains);
   const [toasts, setToasts] = useState([]);
   const [busy, setBusy] = useState('');
+  const syncToasterRef = useRef(null);
+  const syncToastKeyRef = useRef(null);
   const listTarget = document.getElementById('gc-domain-list');
 
   const notify = (intent, message) => {
@@ -195,18 +216,106 @@ function DomainApp({ syncAction, autosyncAction, recordsAction, initialDomains }
     ].slice(0, 5));
   };
 
-  const syncDomain = async (domain, mode = 'sync') => {
-    if (mode === 'import') {
-      notify('info', 'Import is not enabled yet. This setup currently pushes Plesk DNS records to Cloudflare.');
+  const modeLabel = mode => {
+    switch (mode) {
+      case 'import':
+        return 'Import';
+      case 'export':
+        return 'Export';
+      default:
+        return 'Sync';
+    }
+  };
+
+  const syncProgressMessage = (job, domain) => {
+    const progress = typeof job.progress === 'number' ? job.progress : -1;
+    const isDone = job.status === 'done';
+    const hasFailed = Boolean(job.failed);
+    const label = modeLabel(job.mode);
+
+    return (
+      <Progress>
+        <ProgressStep
+          title={isDone ? `${label} completed` : `${label} in progress`}
+          status={isDone ? (hasFailed ? 'warning' : 'done') : 'running'}
+          progress={isDone ? 100 : progress}
+          statusText={isDone ? 'Done' : `${progress >= 0 ? progress : 0}%`}
+        >
+          <span>
+            {domain?.domain_name ? `${domain.domain_name}: ` : ''}
+            {`${job.processed || 0} / ${job.total || 0} records`}
+            <br />
+            {`Created: ${job.created || 0}  Updated: ${job.updated || 0}  Failed: ${job.failed || 0}`}
+          </span>
+        </ProgressStep>
+      </Progress>
+    );
+  };
+
+  const showSyncProgress = (job, domain) => {
+    if (!syncToasterRef.current) {
       return;
     }
 
+    const toast = {
+      message: syncProgressMessage(job, domain),
+      closable: job.status === 'done',
+    };
+
+    if (syncToastKeyRef.current) {
+      syncToasterRef.current.update(syncToastKeyRef.current, toast);
+      return;
+    }
+
+    syncToastKeyRef.current = syncToasterRef.current.add(toast);
+  };
+
+  const processJob = async (initialJob, domain) => {
+    let job = initialJob;
+    showSyncProgress(job, domain);
+
+    while (job && job.status !== 'done') {
+      const payload = await postAction(processSyncJobAction, { job_id: job.id });
+      job = payload.job;
+      showSyncProgress(job, domain);
+      if (payload.domains) {
+        setDomains(payload.domains);
+      }
+    }
+
+    return job;
+  };
+
+  const syncDomain = async (domain, mode = 'sync') => {
     setBusy(`${mode}-${domain.id}`);
+    showSyncProgress({
+      status: 'starting',
+      mode,
+      total: 0,
+      processed: 0,
+      created: 0,
+      updated: 0,
+      failed: 0,
+      progress: -1,
+    }, domain);
+
     try {
-      const payload = await postAction(syncAction, { link_id: domain.id, mode });
-      setDomains(payload.domains || []);
-      const created = payload.result?.created ?? 0;
-      notify('success', `${mode === 'export' ? 'Exported' : 'Synced'} ${created} DNS record${created === 1 ? '' : 's'} to Cloudflare.`);
+      if (!startSyncJobAction || !processSyncJobAction) {
+        const payload = await postAction(syncAction, { link_id: domain.id, mode });
+        setDomains(payload.domains || []);
+        const created = payload.result?.created ?? 0;
+        notify('success', `${modeLabel(mode)} completed for ${created} DNS record${created === 1 ? '' : 's'}.`);
+        return;
+      }
+
+      const started = await postAction(startSyncJobAction, { link_id: domain.id, mode });
+      const job = await processJob(started.job, domain);
+
+      if (job?.failed) {
+        notify('warning', `${modeLabel(job.mode)} completed with ${job.failed} failed record${job.failed === 1 ? '' : 's'}.`);
+      } else {
+        notify('success', `${modeLabel(job?.mode || mode)} completed for ${job?.processed || 0} DNS record${job?.processed === 1 ? '' : 's'}.`);
+      }
     } catch (error) {
       if (error.payload?.domains) {
         setDomains(error.payload.domains);
@@ -216,6 +325,51 @@ function DomainApp({ syncAction, autosyncAction, recordsAction, initialDomains }
       setBusy('');
     }
   };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const resumeJobs = async () => {
+      if (!syncJobStatusAction || !processSyncJobAction || !domains.length) {
+        return;
+      }
+
+      for (const domain of domains) {
+        if (cancelled) {
+          break;
+        }
+
+        try {
+          const payload = await postAction(syncJobStatusAction, { link_id: domain.id });
+          if (!cancelled && payload.job) {
+            setBusy(`${payload.job.mode || 'sync'}-${domain.id}`);
+            const job = await processJob(payload.job, domain);
+            if (!cancelled) {
+              if (job?.failed) {
+                notify('warning', `${modeLabel(job.mode)} completed with ${job.failed} failed record${job.failed === 1 ? '' : 's'}.`);
+              } else {
+                notify('success', `${modeLabel(job?.mode)} completed.`);
+              }
+            }
+          }
+        } catch (error) {
+          if (!cancelled) {
+            notify('danger', error.message);
+          }
+        } finally {
+          if (!cancelled) {
+            setBusy('');
+          }
+        }
+      }
+    };
+
+    resumeJobs();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const toggleAutoSync = async (domain, value) => {
     const previous = domains;
@@ -244,25 +398,39 @@ function DomainApp({ syncAction, autosyncAction, recordsAction, initialDomains }
       return;
     }
 
-    let current = domains;
     let ok = 0;
     let failed = 0;
     setBusy('sync-all');
 
     for (const domain of domains) {
       try {
-        const payload = await postAction(syncAction, { link_id: domain.id });
-        current = payload.domains || current;
-        ok += 1;
+        let job = null;
+        if (startSyncJobAction && processSyncJobAction) {
+          const started = await postAction(startSyncJobAction, { link_id: domain.id, mode: 'sync' });
+          job = started.job ? await processJob(started.job, domain) : null;
+          if (started.domains) {
+            setDomains(started.domains);
+          }
+        } else {
+          const payload = await postAction(syncAction, { link_id: domain.id, mode: 'sync' });
+          if (payload.domains) {
+            setDomains(payload.domains);
+          }
+        }
+
+        if (job?.failed) {
+          failed += 1;
+        } else {
+          ok += 1;
+        }
       } catch (error) {
         failed += 1;
         if (error.payload?.domains) {
-          current = error.payload.domains;
+          setDomains(error.payload.domains);
         }
       }
     }
 
-    setDomains(current);
     setBusy('');
     if (failed) {
       notify('warning', `${ok} synced, ${failed} failed. Check API Logs for details.`);
@@ -310,7 +478,7 @@ function DomainApp({ syncAction, autosyncAction, recordsAction, initialDomains }
       key: 'last_synced_at',
       title: 'Last synced',
       width: '14%',
-      render: row => row.last_synced_at || '-',
+      render: row => <LastSynced value={row.last_synced_at} />,
     },
     {
       key: 'auto_sync',
@@ -376,6 +544,7 @@ function DomainApp({ syncAction, autosyncAction, recordsAction, initialDomains }
 
   return (
     <>
+      <Toaster position="bottom-end" ref={syncToasterRef} />
       <Toaster
         toasts={toasts}
         position="top-end"
@@ -1802,6 +1971,9 @@ if (domainRootElement) {
   createRoot(domainRootElement).render(
     <DomainApp
       syncAction={domainRootElement.dataset.syncDomainAction}
+      startSyncJobAction={domainRootElement.dataset.startSyncJobAction}
+      processSyncJobAction={domainRootElement.dataset.processSyncJobAction}
+      syncJobStatusAction={domainRootElement.dataset.syncJobStatusAction}
       autosyncAction={domainRootElement.dataset.autosyncAction}
       recordsAction={domainRootElement.dataset.recordsAction}
       initialDomains={parseDomains(domainRootElement.dataset.domains)}

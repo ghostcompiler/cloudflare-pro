@@ -152,6 +152,19 @@
     white-space: nowrap;
 }
 
+.gc-last-synced {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 100%;
+}
+
+.gc-last-synced > span:last-child {
+    color: #737373;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 #gc-token-list .pul-list__row,
 #gc-token-list .pul-list__head-row {
     display: grid;
