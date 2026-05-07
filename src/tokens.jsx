@@ -1318,31 +1318,34 @@ function LogsApp({ clearAction, initialLogs }) {
         position="top-end"
         onToastClose={key => setToasts(current => current.filter(toast => toast.key !== key))}
       />
-      <div className="gc-list-toolbar">
-        <SearchBar
-          inputProps={{
-            value: searchQuery,
-            placeholder: 'Search API logs',
-          }}
-          onTyping={value => {
-            setSearchQuery(value);
-            setPage(1);
-          }}
-          onSearch={value => {
-            setSearchQuery(value);
-            setPage(1);
-          }}
-        />
-      </div>
-      <Button
-        arrow="forward"
-        intent="primary"
-        onClick={clearLogs}
-        state={busy === 'clear' ? 'loading' : undefined}
-        disabled={!logs.length}
-      >
-        {'Remove Logs'}
-      </Button>
+      {!!logs.length && (
+        <>
+          <div className="gc-list-toolbar">
+            <SearchBar
+              inputProps={{
+                value: searchQuery,
+                placeholder: 'Search API logs',
+              }}
+              onTyping={value => {
+                setSearchQuery(value);
+                setPage(1);
+              }}
+              onSearch={value => {
+                setSearchQuery(value);
+                setPage(1);
+              }}
+            />
+          </div>
+          <Button
+            arrow="forward"
+            intent="primary"
+            onClick={clearLogs}
+            state={busy === 'clear' ? 'loading' : undefined}
+          >
+            {'Remove Logs'}
+          </Button>
+        </>
+      )}
       {listTarget &&
         createPortal(
           <div className="gc-api-log-shell">
@@ -1366,8 +1369,10 @@ function LogsApp({ clearAction, initialLogs }) {
               ) : undefined}
               emptyView={
                 <ListEmptyView
-                  title="No API calls logged yet"
-                  description="Cloudflare API calls will appear here after token validation or sync actions."
+                  title={logs.length ? 'No matching API logs' : 'No API calls logged yet'}
+                  description={logs.length
+                    ? 'Try a different search query.'
+                    : 'Cloudflare API calls will appear here after token validation or sync actions.'}
                 />
               }
             />
