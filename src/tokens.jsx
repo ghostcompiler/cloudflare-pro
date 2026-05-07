@@ -1,0 +1,950 @@
+import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { createRoot } from 'react-dom/client';
+import {
+  Button,
+  Drawer,
+  FormFieldPassword,
+  FormFieldText,
+  Icon,
+  Link,
+  List,
+  ListEmptyView,
+  Pagination,
+  Status,
+  Switch,
+  Toaster,
+} from '@plesk/ui-library';
+import '@plesk/ui-library/dist/plesk-ui-library.css';
+
+async function postAction(action, data) {
+  const protectionToken = getForgeryProtectionToken();
+  const body = new URLSearchParams();
+  body.set('forgery_protection_token', protectionToken);
+
+  Object.entries(data).forEach(([key, value]) => {
+    body.set(key, value);
+  });
+
+  const response = await fetch(action, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+      Accept: 'application/json',
+      'X-Requested-With': 'XMLHttpRequest',
+      'X-Forgery-Protection-Token': protectionToken,
+    },
+    body,
+  });
+
+  const contentType = response.headers.get('content-type') || '';
+  const text = await response.text();
+  let payload = null;
+
+  try {
+    payload = text ? JSON.parse(text) : null;
+  } catch (error) {
+    throw new Error(explainUnexpectedResponse(response, text, contentType));
+  }
+
+  if (!response.ok || !payload?.success) {
+    const apiError = new Error(payload?.message || `Request failed. HTTP ${response.status}.`);
+    apiError.payload = payload;
+    throw apiError;
+  }
+
+  return payload;
+}
+
+function getForgeryProtectionToken() {
+  const token = document
+    .querySelector('meta[name="forgery_protection_token"]')
+    ?.getAttribute('content');
+
+  if (!token) {
+    throw new Error('Plesk session token is missing. Refresh the page and try again.');
+  }
+
+  return token;
+}
+
+function explainUnexpectedResponse(response, text, contentType) {
+  const plain = text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  if (plain) {
+    return `Server returned ${contentType || 'non-JSON'} response (HTTP ${response.status}): ${plain.slice(0, 180)}`;
+  }
+
+  return `Server returned an empty non-JSON response (HTTP ${response.status}).`;
+}
+
+function statusProps(status) {
+  switch (status) {
+    case 'active':
+      return { intent: 'success', label: 'Active' };
+    case 'warning':
+      return { intent: 'warning', label: 'Warning' };
+    case 'invalid':
+      return { intent: 'danger', label: 'Invalid' };
+    default:
+      return { intent: 'inactive', label: 'Inactive' };
+  }
+}
+
+function EmptyList({ title, description, actions }) {
+  return (
+    <List
+      columns={[]}
+      data={[]}
+      emptyView={
+        <ListEmptyView
+          title={title}
+          description={description}
+          actions={actions}
+        />
+      }
+    />
+  );
+}
+
+const settingsGroups = [
+  {
+    title: 'Sync',
+    items: [
+      {
+        key: 'enable_autosync',
+        title: 'Enable Autosync',
+        description: 'Automatically sync Cloudflare data when supported sync actions run.',
+      },
+      {
+        key: 'validate_token_before_sync',
+        title: 'Validate token before sync',
+        description: 'Check token status before Cloudflare sync operations.',
+      },
+      {
+        key: 'log_api_requests',
+        title: 'Log Cloudflare API calls',
+        description: 'Store request and response details in API Logs.',
+      },
+    ],
+  },
+  {
+    title: 'Domain cleanup',
+    items: [
+      {
+        key: 'remove_records_on_domain_delete',
+        title: 'Remove records automatically on domain delete',
+        description: 'Delete matching Cloudflare DNS records when a Plesk domain is removed.',
+        intent: 'warning',
+      },
+    ],
+  },
+  {
+    title: 'Proxy defaults',
+    items: [
+      {
+        key: 'proxy_a',
+        title: 'Enable proxy for A records',
+        description: 'Create or sync A records with Cloudflare proxy enabled by default.',
+      },
+      {
+        key: 'proxy_aaaa',
+        title: 'Enable proxy for AAAA records',
+        description: 'Create or sync AAAA records with Cloudflare proxy enabled by default.',
+      },
+      {
+        key: 'proxy_cname',
+        title: 'Enable proxy for CNAME records',
+        description: 'Create or sync CNAME records with Cloudflare proxy enabled by default.',
+      },
+    ],
+  },
+];
+
+function TokenApp({ actions, initialTokens }) {
+  const [tokens, setTokens] = useState(initialTokens);
+  const [toasts, setToasts] = useState([]);
+  const [addOpen, setAddOpen] = useState(false);
+  const [editToken, setEditToken] = useState(null);
+  const [changed, setChanged] = useState(false);
+  const [busy, setBusy] = useState('');
+  const listTarget = document.getElementById('gc-token-list');
+
+  const notify = (intent, message) => {
+    const key = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    setToasts(current => [
+      { key, intent, message, autoClosable: intent === 'success', closable: true },
+      ...current,
+    ].slice(0, 5));
+  };
+
+  const run = async (label, task, successMessage = '') => {
+    setBusy(label);
+    try {
+      const payload = await task();
+      if (payload.tokens) {
+        setTokens(payload.tokens);
+      }
+      if (successMessage || payload.message) {
+        notify('success', successMessage || payload.message);
+      }
+      return payload;
+    } catch (error) {
+      if (error.payload?.tokens) {
+        setTokens(error.payload.tokens);
+      }
+      notify('danger', error.message);
+      return null;
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const addToken = values => {
+    const name = String(values.name || '').trim();
+    const token = String(values.token || '').trim();
+    if (!name || !token) {
+      notify('danger', !name ? 'Token name is required.' : 'API token is required.');
+      return;
+    }
+
+    run(
+      'add',
+      () => postAction(actions.add, { name, token }),
+      'Token added successfully.'
+    ).then(payload => {
+      if (payload) {
+        setChanged(false);
+        setAddOpen(false);
+      }
+    });
+  };
+
+  const updateToken = values => {
+    const name = String(values.name || '').trim();
+    const token = String(values.token || '').trim();
+    if (!editToken || !name) {
+      notify('danger', 'Token name is required.');
+      return;
+    }
+
+    run(
+      `edit-${editToken.id}`,
+      () => postAction(actions.update, { id: editToken.id, name, token }),
+      'Token updated successfully.'
+    ).then(payload => {
+      if (payload) {
+        setChanged(false);
+        setEditToken(null);
+      }
+    });
+  };
+
+  const validateToken = token => {
+    run(
+      `validate-${token.id}`,
+      () => postAction(actions.validate, { id: token.id }),
+      'Token validated successfully.'
+    );
+  };
+
+  const deleteToken = token => {
+    if (!window.confirm(`Delete token "${token.name}"?`)) {
+      return;
+    }
+
+    run(
+      `delete-${token.id}`,
+      () => postAction(actions.delete, { id: token.id }),
+      'Token deleted successfully.'
+    );
+  };
+
+  const columns = [
+    {
+      key: 'name',
+      title: 'Name',
+      truncate: true,
+      type: 'title',
+      width: '34%',
+      render: row => <Link component="span">{row.name}</Link>,
+    },
+    {
+      key: 'status',
+      title: 'Status',
+      type: 'controls',
+      width: '14%',
+      render: row => {
+        const status = statusProps(row.status);
+        return (
+          <Status intent={status.intent} compact>
+            {status.label}
+          </Status>
+        );
+      },
+    },
+    {
+      key: 'last_verified_at',
+      title: 'Last validated',
+      width: '18%',
+      render: row => row.last_verified_at || '-',
+    },
+    {
+      key: 'created_at',
+      title: 'Created',
+      width: '18%',
+    },
+    {
+      key: 'actions',
+      type: 'actions',
+      width: '16%',
+      render: row => (
+        <div className="gc-token-actions">
+          <Button icon="pencil" ghost onClick={() => setEditToken(row)}>
+            {'Edit'}
+          </Button>
+          <Button
+            icon="reload"
+            ghost
+            onClick={() => validateToken(row)}
+            state={busy === `validate-${row.id}` ? 'loading' : undefined}
+          >
+            {'Validate'}
+          </Button>
+          <Button
+            icon={<Icon name="recycle" intent="danger" />}
+            ghost
+            onClick={() => deleteToken(row)}
+            state={busy === `delete-${row.id}` ? 'loading' : undefined}
+          >
+            {'Delete'}
+          </Button>
+        </div>
+      ),
+    },
+  ];
+
+  const data = tokens.map(token => ({
+    ...token,
+    key: String(token.id),
+  }));
+
+  return (
+    <>
+      <Toaster
+        toasts={toasts}
+        position="top-end"
+        onToastClose={key => setToasts(current => current.filter(toast => toast.key !== key))}
+      />
+      <Button arrow="forward" intent="primary" onClick={() => setAddOpen(true)}>
+        {'Add Token'}
+      </Button>
+
+      {listTarget &&
+        createPortal(
+          data.length ? (
+            <List columns={columns} data={data} />
+          ) : (
+            <EmptyList
+              title="No tokens added yet"
+              description="Use Add Token to connect a Cloudflare API token."
+            />
+          ),
+          listTarget
+        )}
+
+      <Drawer
+        title="Credentials"
+        isOpen={addOpen}
+        size="xs"
+        className="gc-token-drawer"
+        closingConfirmation={changed}
+        form={{
+          applyButton: false,
+          submitButton: false,
+          onSubmit: addToken,
+          onFieldChange: () => setChanged(true),
+          values: {
+            name: '',
+            token: '',
+          },
+        }}
+        onClose={() => setAddOpen(false)}
+        data-type="cloudflare-token"
+      >
+        <CredentialsHelp />
+        <FormFieldText
+          name="name"
+          label="Token name"
+          autoComplete="off"
+          size="lg"
+          vertical
+          required
+        />
+        <FormFieldPassword
+          name="token"
+          label="API token"
+          autoComplete="new-password"
+          hideCopyButton
+          hideGenerateButton
+          hidePasswordMeter
+          size="lg"
+          vertical
+          required
+        />
+        <div className="gc-drawer-actions">
+          <Button type="submit" intent="primary" state={busy === 'add' ? 'loading' : undefined}>
+            {'Add Token'}
+          </Button>
+          <Button type="button" onClick={() => setAddOpen(false)}>
+            {'Cancel'}
+          </Button>
+        </div>
+      </Drawer>
+
+      <Drawer
+        title="Edit Token"
+        isOpen={!!editToken}
+        size="xs"
+        closingConfirmation={changed}
+        form={{
+          applyButton: false,
+          submitButton: false,
+          onSubmit: updateToken,
+          onFieldChange: () => setChanged(true),
+          values: {
+            name: editToken?.name || '',
+            token: '',
+          },
+        }}
+        onClose={() => setEditToken(null)}
+        key={editToken?.id || 'edit-token'}
+      >
+        <FormFieldText
+          name="name"
+          label="Token name"
+          autoComplete="off"
+          size="lg"
+          vertical
+          required
+        />
+        <FormFieldPassword
+          name="token"
+          label="New API token"
+          autoComplete="new-password"
+          hideCopyButton
+          hideGenerateButton
+          hidePasswordMeter
+          size="lg"
+          vertical
+        />
+        <div className="gc-drawer-note">
+          Leave token blank to keep the existing API token.
+        </div>
+        <div className="gc-drawer-actions">
+          <Button
+            type="submit"
+            intent="primary"
+            state={editToken && busy === `edit-${editToken.id}` ? 'loading' : undefined}
+          >
+            {'Save'}
+          </Button>
+          <Button type="button" onClick={() => setEditToken(null)}>
+            {'Cancel'}
+          </Button>
+        </div>
+      </Drawer>
+    </>
+  );
+}
+
+function LogsApp({ clearAction, initialLogs }) {
+  const [logs, setLogs] = useState(initialLogs);
+  const [toasts, setToasts] = useState([]);
+  const [busy, setBusy] = useState('');
+  const [selectedLog, setSelectedLog] = useState(null);
+  const [page, setPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(25);
+  const listTarget = document.getElementById('gc-api-log-list');
+
+  const notify = (intent, message) => {
+    const key = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    setToasts(current => [
+      { key, intent, message, autoClosable: intent === 'success', closable: true },
+      ...current,
+    ].slice(0, 5));
+  };
+
+  const clearLogs = async () => {
+    setBusy('clear');
+    try {
+      const payload = await postAction(clearAction, {});
+      setLogs(payload.apiLogs || []);
+      notify('success', payload.message || 'API logs removed successfully.');
+      setPage(1);
+    } catch (error) {
+      notify('danger', error.message);
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const copyLog = async log => {
+    await copyToClipboard(JSON.stringify({ request: log.request, response: log.response }, null, 2));
+    notify('success', 'Request and response copied.');
+  };
+
+  const rows = logs.map(log => ({
+    ...log,
+    key: String(log.id),
+  }));
+  const totalPages = itemsPerPage === 'all' ? 1 : Math.max(1, Math.ceil(rows.length / itemsPerPage));
+  const currentPage = Math.min(page, totalPages);
+  const visibleRows = itemsPerPage === 'all'
+    ? rows
+    : rows.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
+
+  const columns = [
+    {
+      key: 'created_at',
+      title: 'Time',
+      width: '17%',
+    },
+    {
+      key: 'route',
+      title: 'Route',
+      width: '28%',
+      truncate: true,
+      render: row => <code>{row.route}</code>,
+    },
+    {
+      key: 'method',
+      title: 'Method',
+      width: '10%',
+    },
+    {
+      key: 'status_code',
+      title: 'Status',
+      width: '12%',
+      render: row => (
+        <Status intent={row.ok ? 'success' : 'danger'} compact>
+          {row.status_code || '-'}
+        </Status>
+      ),
+    },
+    {
+      key: 'duration_ms',
+      title: 'Duration',
+      width: '11%',
+      render: row => (row.duration_ms === null || row.duration_ms === undefined ? '-' : `${row.duration_ms} ms`),
+    },
+    {
+      key: 'actions',
+      type: 'actions',
+      width: '22%',
+      render: row => (
+        <div className="gc-api-log-actions">
+          <Button
+            icon={<Icon name="magnifier" />}
+            ghost
+            onClick={() => setSelectedLog(row)}
+            title="View"
+            aria-label="View"
+          />
+          <Button
+            icon={<Icon name="copy" />}
+            ghost
+            onClick={() => copyLog(row)}
+            title="Copy"
+            aria-label="Copy"
+          />
+        </div>
+      ),
+    },
+  ];
+
+  return (
+    <>
+      <Toaster
+        toasts={toasts}
+        position="top-end"
+        onToastClose={key => setToasts(current => current.filter(toast => toast.key !== key))}
+      />
+      <Button
+        arrow="forward"
+        intent="primary"
+        onClick={clearLogs}
+        state={busy === 'clear' ? 'loading' : undefined}
+        disabled={!logs.length}
+      >
+        {'Remove Logs'}
+      </Button>
+      {listTarget &&
+        createPortal(
+          <div className="gc-api-log-shell">
+            <List
+              columns={columns}
+              data={visibleRows}
+              rowKey="key"
+              className="gc-api-log-list"
+              totalRows={rows.length}
+              pagination={rows.length ? (
+                <Pagination
+                  total={totalPages}
+                  current={currentPage}
+                  onSelect={setPage}
+                  itemsPerPage={itemsPerPage}
+                  itemsPerPageOptions={[25, 50, 100, 'all']}
+                  onItemsPerPageChange={value => {
+                    setItemsPerPage(value);
+                    setPage(1);
+                  }}
+                />
+              ) : undefined}
+              emptyView={
+                <ListEmptyView
+                  title="No API calls logged yet"
+                  description="Cloudflare API calls will appear here after token validation or sync actions."
+                />
+              }
+            />
+          </div>,
+          listTarget
+        )}
+      <LogDetailsDrawer
+        log={selectedLog}
+        onClose={() => setSelectedLog(null)}
+        notify={notify}
+      />
+    </>
+  );
+}
+
+function LogDetailsDrawer({ log, onClose, notify }) {
+  if (!log) {
+    return null;
+  }
+
+  const copy = async (label, value) => {
+    await copyToClipboard(typeof value === 'string' ? value : JSON.stringify(value ?? null, null, 2));
+    notify('success', `${label} copied.`);
+  };
+
+  const fullLog = {
+    route: log.route,
+    method: log.method,
+    status: log.status_code,
+    ok: log.ok,
+    durationMs: log.duration_ms,
+    createdAt: log.created_at,
+    request: log.request,
+    response: log.response,
+    error: log.error,
+  };
+
+  return (
+    <Drawer
+      isOpen
+      size="md"
+      title="API Call Details"
+      onClose={onClose}
+      className="gc-api-log-drawer"
+    >
+      <div className="gc-log-summary">
+        <div><span>Route</span><code>{log.route}</code></div>
+        <div><span>Method</span><code>{log.method}</code></div>
+        <div><span>Status</span><code>{log.status_code || '-'}</code></div>
+        <div><span>Duration</span><code>{log.duration_ms === null || log.duration_ms === undefined ? '-' : `${log.duration_ms} ms`}</code></div>
+        <div><span>Time</span><code>{log.created_at}</code></div>
+      </div>
+      <div className="gc-log-copy-row">
+        <Button icon="copy" onClick={() => copy('Full log', fullLog)}>
+          {'Copy Full Log'}
+        </Button>
+      </div>
+      <LogJsonBlock title="Request" value={log.request} onCopy={() => copy('Request', log.request)} />
+      <LogJsonBlock title="Response" value={log.response} onCopy={() => copy('Response', log.response)} />
+      {log.error ? <LogJsonBlock title="Error" value={log.error} onCopy={() => copy('Error', log.error)} /> : null}
+    </Drawer>
+  );
+}
+
+function LogJsonBlock({ title, value, onCopy }) {
+  return (
+    <section className="gc-log-json-block">
+      <div className="gc-log-json-title">
+        <h3>{title}</h3>
+        <Button icon="copy" ghost onClick={onCopy}>
+          {'Copy'}
+        </Button>
+      </div>
+      <pre>{JSON.stringify(value ?? null, null, 2)}</pre>
+    </section>
+  );
+}
+
+async function copyToClipboard(text) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', 'readonly');
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand('copy');
+  textarea.remove();
+}
+
+function CredentialsHelp() {
+  return (
+    <div className="gc-credentials-help">
+      <p>To create your API token:</p>
+      <ol>
+        <li>
+          Log in to your account using the{' '}
+          <a
+            href="https://dash.cloudflare.com/profile/api-tokens"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Cloudflare
+          </a>
+          .
+        </li>
+        <li>
+          Go to <strong>My Profile &gt; API Tokens</strong>.
+        </li>
+        <li>
+          Click <strong>Create Token</strong>, and then click{' '}
+          <strong>Create Custom Token</strong>.
+        </li>
+        <li>
+          Specify the <strong>"Zone:Zone:Edit"</strong> and{' '}
+          <strong>"Zone:DNS:Edit"</strong> permissions.
+        </li>
+      </ol>
+    </div>
+  );
+}
+
+function SettingsApp({ saveAction, initialSettings }) {
+  const [settings, setSettings] = useState(initialSettings);
+  const [toasts, setToasts] = useState([]);
+  const [busyKey, setBusyKey] = useState('');
+  const panelTarget = document.getElementById('gc-settings-panel');
+
+  const notify = (intent, message) => {
+    const key = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    setToasts(current => [
+      { key, intent, message, autoClosable: intent === 'success', closable: true },
+      ...current,
+    ].slice(0, 5));
+  };
+
+  const updateSetting = async (key, value) => {
+    const previous = settings;
+    const next = {
+      ...settings,
+      [key]: Boolean(value),
+    };
+
+    setSettings(next);
+    setBusyKey(key);
+    try {
+      const payload = await postAction(saveAction, settingsPayload(next));
+      if (payload.settings) {
+        setSettings(payload.settings);
+      }
+      notify('success', 'Setting updated.');
+    } catch (error) {
+      setSettings(previous);
+      notify('danger', error.message);
+    } finally {
+      setBusyKey('');
+    }
+  };
+
+  const columns = [
+    {
+      key: 'title',
+      title: 'Setting',
+      type: 'title',
+      width: '34%',
+      render: row => (
+        <div className="gc-setting-title">
+          <span>{row.title}</span>
+          {row.intent === 'warning' ? (
+            <Status intent="warning" compact>
+              {'Careful'}
+            </Status>
+          ) : null}
+        </div>
+      ),
+    },
+    {
+      key: 'description',
+      title: 'Description',
+      width: '54%',
+      render: row => <span>{row.description}</span>,
+    },
+    {
+      key: 'enabled',
+      title: 'Enabled',
+      type: 'controls',
+      width: '12%',
+      render: row => (
+        <Switch
+          checked={Boolean(settings[row.key])}
+          loading={busyKey === row.key}
+          onChange={value => updateSetting(row.key, value)}
+          aria-label={row.title}
+        />
+      ),
+    },
+  ];
+
+  return (
+    <>
+      <Toaster
+        toasts={toasts}
+        position="top-end"
+        onToastClose={key => setToasts(current => current.filter(toast => toast.key !== key))}
+      />
+      {panelTarget &&
+        createPortal(
+          <div className="gc-settings-shell">
+            {settingsGroups.map(group => {
+              const enabledCount = group.items.filter(item => settings[item.key]).length;
+              const data = group.items.map(item => ({
+                ...item,
+                group: group.title,
+                key: item.key,
+              }));
+
+              return (
+                <section className="gc-settings-section" key={group.title}>
+                  <div className="gc-settings-section-header">
+                    <div>
+                      <h3>{group.title}</h3>
+                      <p>{enabledCount} of {group.items.length} enabled</p>
+                    </div>
+                    <Status intent={enabledCount === group.items.length ? 'success' : 'info'} compact>
+                      {enabledCount === group.items.length ? 'All enabled' : 'Custom'}
+                    </Status>
+                  </div>
+                  <List columns={columns} data={data} rowKey="key" />
+                </section>
+              );
+            })}
+          </div>,
+          panelTarget
+        )}
+    </>
+  );
+}
+
+function settingsPayload(settings) {
+  return Object.fromEntries(
+    Object.entries(settings).map(([key, value]) => [key, value ? '1' : '0'])
+  );
+}
+
+function parseTokens(value) {
+  try {
+    const data = JSON.parse(value || '[]');
+    return Array.isArray(data) ? data : [];
+  } catch (error) {
+    return [];
+  }
+}
+
+function parseSettings(value) {
+  try {
+    const data = JSON.parse(value || '{}');
+    return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+  } catch (error) {
+    return {};
+  }
+}
+
+function parseLogs(value) {
+  try {
+    const data = JSON.parse(value || '[]');
+    return Array.isArray(data) ? data : [];
+  } catch (error) {
+    return [];
+  }
+}
+
+function EmptyApp({ title, description }) {
+  const target = document.getElementById('gc-empty-list');
+
+  if (!target) {
+    return null;
+  }
+
+  return createPortal(
+    <EmptyList title={title} description={description} />,
+    target
+  );
+}
+
+const rootElement = document.getElementById('gc-token-app');
+
+if (rootElement) {
+  createRoot(rootElement).render(
+    <TokenApp
+      actions={{
+        add: rootElement.dataset.addTokenAction,
+        update: rootElement.dataset.updateTokenAction,
+        validate: rootElement.dataset.validateTokenAction,
+        delete: rootElement.dataset.deleteTokenAction,
+      }}
+      initialTokens={parseTokens(rootElement.dataset.tokens)}
+    />
+  );
+}
+
+const logRootElement = document.getElementById('gc-log-app');
+
+if (logRootElement) {
+  createRoot(logRootElement).render(
+    <LogsApp
+      clearAction={logRootElement.dataset.clearLogsAction}
+      initialLogs={parseLogs(logRootElement.dataset.logs)}
+    />
+  );
+}
+
+const emptyRootElement = document.getElementById('gc-empty-app');
+
+if (emptyRootElement) {
+  createRoot(emptyRootElement).render(
+    <EmptyApp
+      title={emptyRootElement.dataset.emptyTitle}
+      description={emptyRootElement.dataset.emptyDescription}
+    />
+  );
+}
+
+const settingsRootElement = document.getElementById('gc-settings-app');
+
+if (settingsRootElement) {
+  createRoot(settingsRootElement).render(
+    <SettingsApp
+      saveAction={settingsRootElement.dataset.saveSettingsAction}
+      initialSettings={parseSettings(settingsRootElement.dataset.settings)}
+    />
+  );
+}

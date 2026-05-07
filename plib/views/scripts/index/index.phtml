@@ -1,0 +1,58 @@
+<?php
+$this->headLink()->appendStylesheet(pm_Context::getBaseUrl() . 'css/cloudflare-pro.css');
+$baseUrl = rtrim(pm_Context::getBaseUrl(), '/') . '/';
+$tokensAssetPath = pm_Context::getHtdocsDir() . DIRECTORY_SEPARATOR . 'public' . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'tokens.js';
+$tokensAssetVersion = file_exists($tokensAssetPath) ? (string) filemtime($tokensAssetPath) : (string) time();
+?>
+
+<div class="gc-extension">
+    <?php echo $this->renderTabs($this->tabs); ?>
+
+    <?php if ('tokens' === $this->tabId): ?>
+        <div
+            id="gc-token-app"
+            class="gc-page-actions"
+            data-add-token-action="<?php echo $this->escape($this->addTokenAction); ?>"
+            data-update-token-action="<?php echo $this->escape($this->updateTokenAction); ?>"
+            data-validate-token-action="<?php echo $this->escape($this->validateTokenAction); ?>"
+            data-delete-token-action="<?php echo $this->escape($this->deleteTokenAction); ?>"
+            data-tokens="<?php echo $this->escape(json_encode($this->tokens)); ?>"
+        ></div>
+    <?php elseif ('logs' === $this->tabId): ?>
+        <div
+            id="gc-log-app"
+            class="gc-page-actions"
+            data-clear-logs-action="<?php echo $this->escape($this->clearLogsAction); ?>"
+            data-logs="<?php echo $this->escape(json_encode($this->apiLogs)); ?>"
+        ></div>
+    <?php elseif ('settings' === $this->tabId): ?>
+        <div
+            id="gc-settings-app"
+            data-save-settings-action="<?php echo $this->escape($this->saveSettingsAction); ?>"
+            data-settings="<?php echo $this->escape(json_encode($this->settings)); ?>"
+        ></div>
+    <?php else: ?>
+        <div
+            id="gc-empty-app"
+            data-empty-title="<?php echo $this->escape($this->emptyTitle); ?>"
+            data-empty-description="<?php echo $this->escape($this->emptyDescription); ?>"
+        ></div>
+    <?php endif; ?>
+
+    <div class="gc-panel">
+        <div class="gc-panel-body">
+            <?php if ('tokens' === $this->tabId): ?>
+                <div id="gc-token-list"></div>
+            <?php elseif ('logs' === $this->tabId): ?>
+                <div id="gc-api-log-list"></div>
+            <?php elseif ('settings' === $this->tabId): ?>
+                <div id="gc-settings-panel"></div>
+            <?php else: ?>
+                <div id="gc-empty-list"></div>
+            <?php endif; ?>
+        </div>
+    </div>
+</div>
+
+<link rel="stylesheet" href="<?php echo $this->escape($baseUrl . 'public/assets/tokens.css?v=' . $tokensAssetVersion); ?>">
+<script type="module" src="<?php echo $this->escape($baseUrl . 'public/assets/tokens.js?v=' . $tokensAssetVersion); ?>"></script>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<module>
+  <id>cloudflare-pro</id>
+  <name>Cloudflare Pro</name>
+  <description>Cloudflare Pro extension by Ghost Compiler.</description>
+  <version>1.0.0</version>
+  <release>1</release>
+  <vendor>Ghost Compiler</vendor>
+  <url>https://ghostcompiler.com</url>
+  <plesk_min_version>12.5.0</plesk_min_version>
+</module>
