@@ -381,15 +381,16 @@ function DomainApp({ syncAction, autosyncAction, recordsAction, initialDomains }
         position="top-end"
         onToastClose={key => setToasts(current => current.filter(toast => toast.key !== key))}
       />
-      <Button
-        arrow="forward"
-        intent="primary"
-        onClick={syncAll}
-        disabled={!domains.length}
-        state={busy === 'sync-all' ? 'loading' : undefined}
-      >
-        {'Sync All'}
-      </Button>
+      {!!domains.length && (
+        <Button
+          arrow="forward"
+          intent="primary"
+          onClick={syncAll}
+          state={busy === 'sync-all' ? 'loading' : undefined}
+        >
+          {'Sync All'}
+        </Button>
+      )}
       {listTarget &&
         createPortal(
           <List
@@ -1616,6 +1617,112 @@ function SettingsApp({ saveAction, initialSettings }) {
   );
 }
 
+function AboutApp({ info, logo }) {
+  const target = document.getElementById('gc-about-panel');
+  const version = info.version || '1.0.0';
+  const highlights = [
+    {
+      icon: 'cloud',
+      title: 'Cloudflare DNS sync',
+      description: 'Import, export, and sync Plesk DNS records with linked Cloudflare zones.',
+    },
+    {
+      icon: 'lock-closed',
+      title: 'Per-user access',
+      description: 'Tokens, settings, domains, jobs, and API logs stay scoped to the logged-in Plesk user.',
+    },
+    {
+      icon: 'reload',
+      title: 'Autosync jobs',
+      description: 'Event-based DNS pushes and long-running sync jobs keep updates moving without request timeouts.',
+    },
+    {
+      icon: 'list',
+      title: 'API visibility',
+      description: 'Cloudflare API requests are logged with route, status, duration, request, and response details.',
+    },
+  ];
+
+  if (!target) {
+    return null;
+  }
+
+  return createPortal(
+    <div className="gc-about">
+      <section className="gc-about-hero">
+        <div className="gc-about-brand">
+          <img src={logo} alt="Cloudflare" className="gc-about-logo" />
+          <div>
+            <Status intent="warning" compact>
+              {'Pre-release'}
+            </Status>
+            <h2>{info.name || 'Cloudflare Pro'}</h2>
+            <p>{info.description}</p>
+          </div>
+        </div>
+        <div className="gc-about-version">
+          <span>{'Version'}</span>
+          <strong>{version}</strong>
+        </div>
+      </section>
+
+      <section className="gc-about-grid" aria-label="Cloudflare Pro features">
+        {highlights.map(item => (
+          <article className="gc-about-card" key={item.title}>
+            <div className="gc-about-card-icon">
+              <Icon name={item.icon} />
+            </div>
+            <h3>{item.title}</h3>
+            <p>{item.description}</p>
+          </article>
+        ))}
+      </section>
+
+      <section className="gc-about-developer">
+        <div className="gc-about-developer-logo">
+          <img src={info.developerLogo || 'https://assets.ghostcompiler.in/logo.png'} alt="Ghost Compiler" />
+        </div>
+        <div className="gc-about-developer-copy">
+          <Status intent="info" compact>
+            {'Developer'}
+          </Status>
+          <h3>{info.brand || 'Ghost Compiler'}</h3>
+          <p>{'Designed and developed by Ghost Compiler for Cloudflare DNS management inside Plesk.'}</p>
+        </div>
+        <div className="gc-about-developer-meta">
+          <div>
+            <span>{'Extension'}</span>
+            <strong>{info.name || 'Cloudflare Pro'}</strong>
+          </div>
+          <div>
+            <span>{'Version'}</span>
+            <strong>{version}</strong>
+          </div>
+          <div>
+            <span>{'Website'}</span>
+            <Link href={info.vendorUrl || 'https://ghostcompiler.com'} target="_blank">
+              {'ghostcompiler.com'}
+            </Link>
+          </div>
+          <div>
+            <span>{'GitHub'}</span>
+            <Link href={info.githubUrl || 'https://github.com/ghostcompiler'} target="_blank">
+              {'github.com/ghostcompiler'}
+            </Link>
+          </div>
+          <div>
+            <span>{'Repository'}</span>
+            <Link href={info.repositoryUrl || 'https://github.com/ghostcompiler/cloudflare-pro'} target="_blank">
+              {'ghostcompiler/cloudflare-pro'}
+            </Link>
+          </div>
+        </div>
+      </section>
+    </div>,
+    target
+  );
+}
+
 function settingsPayload(settings) {
   return Object.fromEntries(
     Object.entries(settings).map(([key, value]) => [key, value ? '1' : '0'])
@@ -1664,6 +1771,15 @@ function parseRecords(value) {
     return Array.isArray(data) ? data : [];
   } catch (error) {
     return [];
+  }
+}
+
+function parseInfo(value) {
+  try {
+    const data = JSON.parse(value || '{}');
+    return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+  } catch (error) {
+    return {};
   }
 }
 
@@ -1755,6 +1871,17 @@ if (settingsRootElement) {
     <SettingsApp
       saveAction={settingsRootElement.dataset.saveSettingsAction}
       initialSettings={parseSettings(settingsRootElement.dataset.settings)}
+    />
+  );
+}
+
+const aboutRootElement = document.getElementById('gc-about-app');
+
+if (aboutRootElement) {
+  createRoot(aboutRootElement).render(
+    <AboutApp
+      info={parseInfo(aboutRootElement.dataset.info)}
+      logo={aboutRootElement.dataset.logo}
     />
   );
 }

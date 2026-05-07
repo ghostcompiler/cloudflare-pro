@@ -544,10 +544,28 @@ class IndexController extends pm_Controller_Action
 
     public function aboutAction()
     {
+        $this->view->aboutInfo = [
+            'name' => 'Cloudflare Pro',
+            'brand' => 'Ghost Compiler',
+            'id' => 'cloudflare-pro',
+            'version' => '1.0.0',
+            'release' => '1',
+            'category' => 'DNS',
+            'vendorUrl' => 'https://ghostcompiler.com',
+            'githubUrl' => 'https://github.com/ghostcompiler',
+            'developerLogo' => 'https://assets.ghostcompiler.in/logo.png',
+            'repositoryUrl' => 'https://github.com/ghostcompiler/cloudflare-pro',
+            'pleskMinVersion' => '18.0.0',
+            'uiLibrary' => 'Plesk UI Library',
+            'uiLibraryVersion' => '3.46.5',
+            'description' => 'Cloudflare Pro connects Plesk DNS zones with Cloudflare zones using per-user tokens, synced records, API logs, and autosync controls.',
+        ];
+
         $this->renderTab(
             'About',
             'Cloudflare Pro',
-            'Ghost Compiler extension for Cloudflare management.'
+            'Ghost Compiler extension for Cloudflare management.',
+            'about'
         );
     }
 

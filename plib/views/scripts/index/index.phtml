@@ -53,6 +53,12 @@ $tokensAssetVersion = file_exists($tokensAssetPath) ? (string) filemtime($tokens
             data-save-settings-action="<?php echo $this->escape($this->saveSettingsAction); ?>"
             data-settings="<?php echo $this->escape(json_encode($this->settings)); ?>"
         ></div>
+    <?php elseif ('about' === $this->tabId): ?>
+        <div
+            id="gc-about-app"
+            data-info="<?php echo $this->escape(json_encode($this->aboutInfo)); ?>"
+            data-logo="<?php echo $this->escape($baseUrl . 'images/cloudflare-logo.svg'); ?>"
+        ></div>
     <?php else: ?>
         <div
             id="gc-empty-app"
@@ -73,6 +79,8 @@ $tokensAssetVersion = file_exists($tokensAssetPath) ? (string) filemtime($tokens
                 <div id="gc-api-log-list"></div>
             <?php elseif ('settings' === $this->tabId): ?>
                 <div id="gc-settings-panel"></div>
+            <?php elseif ('about' === $this->tabId): ?>
+                <div id="gc-about-panel"></div>
             <?php else: ?>
                 <div id="gc-empty-list"></div>
             <?php endif; ?>
