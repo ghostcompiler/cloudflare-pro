@@ -111,7 +111,9 @@ class CloudflarePro_DomainSyncService
         $pleskDomains = $this->accessibleDomainMap();
         $tokens = $this->tokens->activeWithSecrets();
 
-        $this->domains->keepOnlyDomainIds(array_keys($pleskDomains));
+        $this->domains->keepOnlyDomainIds(array_map(function ($domain) {
+            return (string) $domain->getId();
+        }, $pleskDomains));
         $this->domains->keepOnlyTokenIds(array_map(function ($token) {
             return $token['id'];
         }, $tokens));
