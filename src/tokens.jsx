@@ -148,14 +148,7 @@ function LastSynced({ value }) {
     );
   }
 
-  return (
-    <span className="gc-last-synced">
-      <Status intent="success" compact>
-        {'Synced'}
-      </Status>
-      <span>{value}</span>
-    </span>
-  );
+  return <span className="gc-last-synced">{value}</span>;
 }
 
 function RecordValue({ row }) {
@@ -207,6 +200,28 @@ function DomainApp({ syncAction, startSyncJobAction, processSyncJobAction, syncJ
   const syncToasterRef = useRef(null);
   const syncToastKeysRef = useRef({});
   const listTarget = document.getElementById('gc-domain-list');
+
+  const mergeDomains = nextDomains => {
+    setDomains(current => {
+      const currentById = new Map(current.map(domain => [String(domain.id), domain]));
+
+      return (nextDomains || []).map(domain => {
+        const previous = currentById.get(String(domain.id));
+        if (!previous) {
+          return domain;
+        }
+
+        const lastSyncedAt = domain.last_synced_at || previous.last_synced_at || '';
+
+        return {
+          ...previous,
+          ...domain,
+          last_synced_at: lastSyncedAt,
+          status: lastSyncedAt ? 'synced' : domain.status,
+        };
+      });
+    });
+  };
 
   const setBusyKey = (key, value) => {
     setBusy(current => {
@@ -296,7 +311,7 @@ function DomainApp({ syncAction, startSyncJobAction, processSyncJobAction, syncJ
       job = payload.job;
       showSyncProgress(job, domain);
       if (payload.domains) {
-        setDomains(payload.domains);
+        mergeDomains(payload.domains);
       }
     }
 
@@ -320,7 +335,7 @@ function DomainApp({ syncAction, startSyncJobAction, processSyncJobAction, syncJ
     try {
       if (!startSyncJobAction || !processSyncJobAction) {
         const payload = await postAction(syncAction, { link_id: domain.id, mode });
-        setDomains(payload.domains || []);
+        mergeDomains(payload.domains || []);
         const created = payload.result?.created ?? 0;
         notify('success', `${modeLabel(mode)} completed for ${created} DNS record${created === 1 ? '' : 's'}.`);
         return;
@@ -336,7 +351,7 @@ function DomainApp({ syncAction, startSyncJobAction, processSyncJobAction, syncJ
       }
     } catch (error) {
       if (error.payload?.domains) {
-        setDomains(error.payload.domains);
+        mergeDomains(error.payload.domains);
       }
       notify('danger', error.message);
     } finally {
@@ -403,7 +418,7 @@ function DomainApp({ syncAction, startSyncJobAction, processSyncJobAction, syncJ
         link_id: domain.id,
         auto_sync: value ? '1' : '0',
       });
-      setDomains(payload.domains || []);
+      mergeDomains(payload.domains || []);
       notify('success', value ? 'Auto Sync enabled.' : 'Auto Sync disabled.');
     } catch (error) {
       setDomains(previous);
@@ -440,12 +455,12 @@ function DomainApp({ syncAction, startSyncJobAction, processSyncJobAction, syncJ
           const started = await postAction(startSyncJobAction, { link_id: domain.id, mode: 'sync' });
           job = started.job ? await processJob(started.job, domain) : null;
           if (started.domains) {
-            setDomains(started.domains);
+            mergeDomains(started.domains);
           }
         } else {
           const payload = await postAction(syncAction, { link_id: domain.id, mode: 'sync' });
           if (payload.domains) {
-            setDomains(payload.domains);
+            mergeDomains(payload.domains);
           }
         }
 
@@ -458,7 +473,7 @@ function DomainApp({ syncAction, startSyncJobAction, processSyncJobAction, syncJ
     } catch (error) {
       failed += 1;
       if (error.payload?.domains) {
-        setDomains(error.payload.domains);
+        mergeDomains(error.payload.domains);
       }
       notify('danger', error.message);
     } finally {
