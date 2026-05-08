@@ -116,14 +116,24 @@ class Modules_CloudflarePro_DomainRepository
 
     public function findAutosyncLinksForHostAllOwners($hostName)
     {
+        return $this->findLinksForHostAllOwnersInternal($hostName, true);
+    }
+
+    public function findLinksForHostAllOwners($hostName)
+    {
+        return $this->findLinksForHostAllOwnersInternal($hostName, false);
+    }
+
+    private function findLinksForHostAllOwnersInternal($hostName, $autosyncOnly)
+    {
         $hostName = strtolower(rtrim((string) $hostName, '.'));
+        $autosyncFilter = $autosyncOnly ? 'auto_sync = 1 AND' : '';
         $stmt = $this->db->prepare(
             'SELECT id, owner_id, owner_login, domain_id, domain_name, token_id, token_name,
                     zone_id, zone_name, status, auto_sync, records_count, last_synced_at,
                     last_discovered_at, last_error, created_at, updated_at
              FROM domain_links
-             WHERE auto_sync = 1
-               AND (
+             WHERE ' . $autosyncFilter . ' (
                     lower(domain_name) = :host_name
                     OR :host_name LIKE "%." || lower(domain_name)
                     OR lower(zone_name) = :host_name

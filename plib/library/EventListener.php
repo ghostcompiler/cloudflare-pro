@@ -76,6 +76,11 @@ class Modules_CloudflarePro_EventListener implements EventListener
             }
 
             error_log('Cloudflare Pro autosync event: object=' . $objectType . ', action=' . $action . ', host=' . $hostName . ', source=' . $sourceDomainName);
+            if ($this->isDeleteAction($action)) {
+                CloudflarePro_DomainSyncService::autoDeleteHost($hostName);
+                return;
+            }
+
             CloudflarePro_DomainSyncService::autoSyncHost($hostName, $sourceDomainName ?: null, 8);
         } catch (Throwable $e) {
             error_log('Cloudflare Pro event autosync failed: ' . $e->getMessage());
@@ -98,6 +103,15 @@ class Modules_CloudflarePro_EventListener implements EventListener
         }
 
         return false;
+    }
+
+    private function isDeleteAction($action)
+    {
+        $action = strtolower((string) $action);
+
+        return false !== strpos($action, 'delete') ||
+            false !== strpos($action, 'remove') ||
+            false !== strpos($action, 'removed');
     }
 
     private function composeHostName($subdomainName, $domainName)

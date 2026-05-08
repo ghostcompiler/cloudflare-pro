@@ -71,6 +71,41 @@ class CloudflarePro_DomainSyncService
         return $results;
     }
 
+    public static function autoDeleteHost($hostName)
+    {
+        $hostName = strtolower(rtrim((string) $hostName, '.'));
+        $links = (new Modules_CloudflarePro_DomainRepository(['id' => 'system', 'login' => 'system']))
+            ->findLinksForHostAllOwners($hostName);
+        $results = [];
+
+        if (!$links) {
+            error_log('Cloudflare Pro auto delete skipped: no linked zone for ' . $hostName);
+
+            return $results;
+        }
+
+        foreach ($links as $link) {
+            $owner = [
+                'id' => $link['owner_id'],
+                'login' => $link['owner_login'],
+            ];
+
+            try {
+                $settings = (new Modules_CloudflarePro_SettingsRepository($owner))->all();
+                if (empty($settings['remove_records_on_domain_delete'])) {
+                    continue;
+                }
+
+                $service = new self($owner);
+                $results[] = $service->deleteHostRecords($link['id'], $hostName);
+            } catch (Throwable $e) {
+                error_log('Cloudflare Pro auto delete failed for ' . $hostName . ': ' . $e->getMessage());
+            }
+        }
+
+        return $results;
+    }
+
     public function linkedDomains()
     {
         $pleskDomains = $this->accessibleDomainMap();
@@ -519,6 +554,35 @@ class CloudflarePro_DomainSyncService
         return $this->recordsForLink($linkId);
     }
 
+    public function deleteHostRecords($linkId, $hostName)
+    {
+        $link = $this->domains->find($linkId);
+        $token = $this->tokens->secret($link['token_id']);
+        $hostName = strtolower(rtrim((string) $hostName, '.'));
+        $deleted = 0;
+
+        foreach ($this->cloudflare->listDnsRecords($token, $link['zone_id']) as $record) {
+            if (empty($record['id'])) {
+                continue;
+            }
+
+            $normalized = $this->normalizeCloudflareRecord($record);
+            if (!$this->shouldReplace($normalized) || !$this->recordMatchesDeletedHost($normalized, $hostName)) {
+                continue;
+            }
+
+            $this->cloudflare->deleteDnsRecord($token, $link['zone_id'], $record['id']);
+            $deleted++;
+        }
+
+        $this->domains->markSynced($link['id'], 0);
+        error_log('Cloudflare Pro auto delete completed for ' . $hostName . ': deleted=' . $deleted);
+
+        return [
+            'deleted' => $deleted,
+        ];
+    }
+
     private function accessibleDomainMap()
     {
         $domains = [];
@@ -548,6 +612,13 @@ class CloudflarePro_DomainSyncService
         $zoneName = strtolower(rtrim((string) $zoneName, '.'));
 
         return $name === $zoneName || substr($name, -strlen('.' . $zoneName)) === '.' . $zoneName;
+    }
+
+    private function recordMatchesDeletedHost(array $record, $hostName)
+    {
+        $name = strtolower(rtrim(isset($record['name']) ? $record['name'] : '', '.'));
+
+        return $name === $hostName || substr($name, -strlen('.' . $hostName)) === '.' . $hostName;
     }
 
     private function cloudflareRecord($record, array $settings = [], $applyProxyDefaults = false)
