@@ -108,6 +108,11 @@ class CloudflarePro_DomainSyncService
         return $this->domains->all();
     }
 
+    public function storedDomains()
+    {
+        return $this->domains->all();
+    }
+
     public function syncLink($linkId)
     {
         $link = $this->domains->find($linkId);
