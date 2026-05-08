@@ -106,6 +106,20 @@ class Modules_CloudflarePro_SyncJobRepository
         return $row ? $this->normalize($row) : null;
     }
 
+    public function hasRunning()
+    {
+        $stmt = $this->db->prepare(
+            'SELECT COUNT(*)
+             FROM sync_jobs
+             WHERE owner_id = :owner_id AND status IN ("queued", "running")'
+        );
+        $stmt->execute([
+            ':owner_id' => $this->owner['id'],
+        ]);
+
+        return (int) $stmt->fetchColumn() > 0;
+    }
+
     public function markProgress($id, $processed, $created, $updated, $failed, $status, $error = null)
     {
         $stmt = $this->db->prepare(

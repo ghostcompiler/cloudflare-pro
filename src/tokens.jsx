@@ -203,10 +203,22 @@ function matchesSearch(item, query, fields) {
 function DomainApp({ syncAction, startSyncJobAction, processSyncJobAction, syncJobStatusAction, autosyncAction, recordsAction, initialDomains }) {
   const [domains, setDomains] = useState(initialDomains);
   const [toasts, setToasts] = useState([]);
-  const [busy, setBusy] = useState('');
+  const [busy, setBusy] = useState({});
   const syncToasterRef = useRef(null);
-  const syncToastKeyRef = useRef(null);
+  const syncToastKeysRef = useRef({});
   const listTarget = document.getElementById('gc-domain-list');
+
+  const setBusyKey = (key, value) => {
+    setBusy(current => {
+      if (value) {
+        return { ...current, [key]: true };
+      }
+
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+  };
 
   const notify = (intent, message) => {
     const key = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -252,22 +264,27 @@ function DomainApp({ syncAction, startSyncJobAction, processSyncJobAction, syncJ
     );
   };
 
+  const syncToastKey = (job, domain) => {
+    return `domain-${domain?.id || 'all'}-${job?.mode || 'sync'}`;
+  };
+
   const showSyncProgress = (job, domain) => {
     if (!syncToasterRef.current) {
       return;
     }
 
+    const key = syncToastKey(job, domain);
     const toast = {
       message: syncProgressMessage(job, domain),
       closable: job.status === 'done',
     };
 
-    if (syncToastKeyRef.current) {
-      syncToasterRef.current.update(syncToastKeyRef.current, toast);
+    if (syncToastKeysRef.current[key]) {
+      syncToasterRef.current.update(syncToastKeysRef.current[key], toast);
       return;
     }
 
-    syncToastKeyRef.current = syncToasterRef.current.add(toast);
+    syncToastKeysRef.current[key] = syncToasterRef.current.add(toast);
   };
 
   const processJob = async (initialJob, domain) => {
@@ -287,7 +304,8 @@ function DomainApp({ syncAction, startSyncJobAction, processSyncJobAction, syncJ
   };
 
   const syncDomain = async (domain, mode = 'sync') => {
-    setBusy(`${mode}-${domain.id}`);
+    const busyKey = `${mode}-${domain.id}`;
+    setBusyKey(busyKey, true);
     showSyncProgress({
       status: 'starting',
       mode,
@@ -322,7 +340,7 @@ function DomainApp({ syncAction, startSyncJobAction, processSyncJobAction, syncJ
       }
       notify('danger', error.message);
     } finally {
-      setBusy('');
+      setBusyKey(busyKey, false);
     }
   };
 
@@ -339,10 +357,12 @@ function DomainApp({ syncAction, startSyncJobAction, processSyncJobAction, syncJ
           break;
         }
 
+        let busyKey = null;
         try {
           const payload = await postAction(syncJobStatusAction, { link_id: domain.id });
           if (!cancelled && payload.job) {
-            setBusy(`${payload.job.mode || 'sync'}-${domain.id}`);
+            busyKey = `${payload.job.mode || 'sync'}-${domain.id}`;
+            setBusyKey(busyKey, true);
             const job = await processJob(payload.job, domain);
             if (!cancelled) {
               if (job?.failed) {
@@ -357,8 +377,8 @@ function DomainApp({ syncAction, startSyncJobAction, processSyncJobAction, syncJ
             notify('danger', error.message);
           }
         } finally {
-          if (!cancelled) {
-            setBusy('');
+          if (!cancelled && busyKey) {
+            setBusyKey(busyKey, false);
           }
         }
       }
@@ -376,7 +396,7 @@ function DomainApp({ syncAction, startSyncJobAction, processSyncJobAction, syncJ
     setDomains(current => current.map(item => (
       item.id === domain.id ? { ...item, auto_sync: value ? '1' : '0' } : item
     )));
-    setBusy(`autosync-${domain.id}`);
+    setBusyKey(`autosync-${domain.id}`, true);
 
     try {
       const payload = await postAction(autosyncAction, {
@@ -389,21 +409,32 @@ function DomainApp({ syncAction, startSyncJobAction, processSyncJobAction, syncJ
       setDomains(previous);
       notify('danger', error.message);
     } finally {
-      setBusy('');
+      setBusyKey(`autosync-${domain.id}`, false);
     }
   };
 
+  const hasRunningSync = Object.keys(busy).some(key => (
+    key === 'sync-all' ||
+    key.startsWith('sync-') ||
+    key.startsWith('export-') ||
+    key.startsWith('import-')
+  ));
+
   const syncAll = async () => {
-    if (!domains.length) {
+    if (!domains.length || hasRunningSync) {
       return;
     }
 
     let ok = 0;
     let failed = 0;
-    setBusy('sync-all');
+    setBusyKey('sync-all', true);
 
-    for (const domain of domains) {
-      try {
+    try {
+      if (startSyncJobAction) {
+        await postAction(startSyncJobAction, { scope: 'all', mode: 'sync' });
+      }
+
+      for (const domain of domains) {
         let job = null;
         if (startSyncJobAction && processSyncJobAction) {
           const started = await postAction(startSyncJobAction, { link_id: domain.id, mode: 'sync' });
@@ -423,21 +454,24 @@ function DomainApp({ syncAction, startSyncJobAction, processSyncJobAction, syncJ
         } else {
           ok += 1;
         }
-      } catch (error) {
-        failed += 1;
-        if (error.payload?.domains) {
-          setDomains(error.payload.domains);
-        }
+      }
+    } catch (error) {
+      failed += 1;
+      if (error.payload?.domains) {
+        setDomains(error.payload.domains);
+      }
+      notify('danger', error.message);
+    } finally {
+      setBusyKey('sync-all', false);
+      if (!failed) {
+        notify('success', `${ok} linked domain${ok === 1 ? '' : 's'} synced.`);
+      } else if (ok || failed > 1) {
+        notify('warning', `${ok} synced, ${failed} failed. Check API Logs for details.`);
       }
     }
-
-    setBusy('');
-    if (failed) {
-      notify('warning', `${ok} synced, ${failed} failed. Check API Logs for details.`);
-    } else {
-      notify('success', `${ok} linked domain${ok === 1 ? '' : 's'} synced.`);
-    }
   };
+
+  const syncAllDisabled = hasRunningSync && !busy['sync-all'];
 
   const columns = [
     {
@@ -466,7 +500,7 @@ function DomainApp({ syncAction, startSyncJobAction, processSyncJobAction, syncJ
       width: '12%',
       type: 'controls',
       render: row => {
-        const status = linkedStatus(row.status);
+        const status = linkedStatus(row.last_synced_at ? 'synced' : row.status);
         return (
           <Status intent={status.intent} compact>
             {status.label}
@@ -488,7 +522,7 @@ function DomainApp({ syncAction, startSyncJobAction, processSyncJobAction, syncJ
       render: row => (
         <Switch
           checked={row.auto_sync === true || row.auto_sync === 1 || row.auto_sync === '1'}
-          loading={busy === `autosync-${row.id}`}
+          loading={Boolean(busy[`autosync-${row.id}`])}
           onChange={value => toggleAutoSync(row, value)}
           aria-label={`Auto Sync ${row.domain_name}`}
         />
@@ -512,7 +546,7 @@ function DomainApp({ syncAction, startSyncJobAction, processSyncJobAction, syncJ
             icon="arrow-up-tray"
             intent="success"
             onClick={() => syncDomain(row, 'export')}
-            state={busy === `export-${row.id}` ? 'loading' : undefined}
+            state={busy[`export-${row.id}`] ? 'loading' : undefined}
           >
             {'Export'}
           </Button>
@@ -528,7 +562,7 @@ function DomainApp({ syncAction, startSyncJobAction, processSyncJobAction, syncJ
             arrow="forward"
             intent="primary"
             onClick={() => syncDomain(row, 'sync')}
-            state={busy === `sync-${row.id}` ? 'loading' : undefined}
+            state={busy[`sync-${row.id}`] ? 'loading' : undefined}
           >
             {'Sync'}
           </Button>
@@ -555,7 +589,8 @@ function DomainApp({ syncAction, startSyncJobAction, processSyncJobAction, syncJ
           arrow="forward"
           intent="primary"
           onClick={syncAll}
-          state={busy === 'sync-all' ? 'loading' : undefined}
+          disabled={syncAllDisabled}
+          state={busy['sync-all'] ? 'loading' : undefined}
         >
           {'Sync All'}
         </Button>

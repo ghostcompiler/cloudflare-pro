@@ -139,18 +139,32 @@ class IndexController extends pm_Controller_Action
             return $this->jsonResponse(false, 'Invalid request method.');
         }
 
-        $linkId = (int) $this->_request->getPost('link_id', 0);
-        if ($linkId <= 0) {
-            return $this->jsonResponse(false, 'Linked domain is required.');
-        }
-
         try {
-            $service = new CloudflarePro_DomainSyncService();
             $repository = new Modules_CloudflarePro_SyncJobRepository();
             $mode = trim((string) $this->_request->getPost('mode', 'export'));
+            $scope = trim((string) $this->_request->getPost('scope', 'domain'));
             if (!in_array($mode, ['import', 'export', 'sync'], true)) {
                 $mode = 'export';
             }
+
+            if ('all' === $scope) {
+                if ($repository->hasRunning()) {
+                    return $this->jsonResponse(false, 'A sync job is already running. Wait until it completes before starting Sync All.');
+                }
+
+                return $this->jsonResponse(true, 'Sync All can start.');
+            }
+
+            $linkId = (int) $this->_request->getPost('link_id', 0);
+            if ($linkId <= 0) {
+                return $this->jsonResponse(false, 'Linked domain is required.');
+            }
+
+            if ($repository->findRunningByLink($linkId)) {
+                return $this->jsonResponse(false, 'A sync job is already running for this domain.');
+            }
+
+            $service = new CloudflarePro_DomainSyncService();
             $items = 'import' === $mode ? $service->queueImportItemsForLink($linkId) : $service->queueItemsForLink($linkId);
             $job = $repository->create($linkId, $items, $mode);
 
@@ -183,7 +197,7 @@ class IndexController extends pm_Controller_Action
 
                 return $this->jsonResponse(true, 'Sync job completed.', array_merge($repository->response($job), [
                     'records' => $data['records'],
-                    'domains' => $service->linkedDomains(),
+                    'domains' => $service->storedDomains(),
                 ]));
             }
 
@@ -216,7 +230,7 @@ class IndexController extends pm_Controller_Action
             if ('done' === $status) {
                 $data = $service->recordsForLink($job['link_id']);
                 $response['records'] = $data['records'];
-                $response['domains'] = $service->linkedDomains();
+                $response['domains'] = $service->storedDomains();
             }
 
             return $this->jsonResponse(true, 'Sync job updated.', $response);

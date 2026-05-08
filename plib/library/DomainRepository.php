@@ -71,7 +71,7 @@ class Modules_CloudflarePro_DomainRepository
         );
         $stmt->execute([':owner_id' => $this->owner['id']]);
 
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return array_map([$this, 'normalizeRow'], $stmt->fetchAll(PDO::FETCH_ASSOC));
     }
 
     public function find($id)
@@ -92,7 +92,7 @@ class Modules_CloudflarePro_DomainRepository
             throw new pm_Exception('Linked domain not found.');
         }
 
-        return $row;
+        return $this->normalizeRow($row);
     }
 
     public function findByDomainName($domainName)
@@ -111,7 +111,7 @@ class Modules_CloudflarePro_DomainRepository
 
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        return $row ?: null;
+        return $row ? $this->normalizeRow($row) : null;
     }
 
     public function findAutosyncLinksForHostAllOwners($hostName)
@@ -135,7 +135,7 @@ class Modules_CloudflarePro_DomainRepository
             ':host_name' => $hostName,
         ]);
 
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return array_map([$this, 'normalizeRow'], $stmt->fetchAll(PDO::FETCH_ASSOC));
     }
 
     public function upsert(array $link)
@@ -145,7 +145,7 @@ class Modules_CloudflarePro_DomainRepository
 
         if ($existing) {
             $status = isset($link['status']) ? $link['status'] : 'linked';
-            if ('active' === $status && ('synced' === $existing['status'] || !empty($existing['last_synced_at']))) {
+            if (!empty($existing['last_synced_at'])) {
                 $status = 'synced';
             }
 
@@ -320,6 +320,15 @@ class Modules_CloudflarePro_DomainRepository
         ]);
 
         return $stmt->fetch(PDO::FETCH_ASSOC);
+    }
+
+    private function normalizeRow(array $row)
+    {
+        if (!empty($row['last_synced_at'])) {
+            $row['status'] = 'synced';
+        }
+
+        return $row;
     }
 
     private function addColumnIfMissing($name, $definition)
