@@ -196,8 +196,9 @@ class CloudflarePro_DomainSyncService
     public function queueItemsForLink($linkId)
     {
         $link = $this->domains->find($linkId);
-        $records = array_values(array_filter(array_map(function ($record) {
-            return $this->cloudflareRecord($record);
+        $settings = $this->settings->all();
+        $records = array_values(array_filter(array_map(function ($record) use ($settings) {
+            return $this->cloudflareRecord($record, $settings, true);
         }, $this->plesk->recordsForDomainId($link['domain_id']))));
 
         return $records;
@@ -237,7 +238,12 @@ class CloudflarePro_DomainSyncService
 
             $key = $this->nameTypeKey($record);
             if (isset($existing[$key]) && !empty($existing[$key]['id'])) {
-                $this->cloudflare->updateDnsRecord($token, $link['zone_id'], $existing[$key]['id'], $record);
+                $this->cloudflare->updateDnsRecord(
+                    $token,
+                    $link['zone_id'],
+                    $existing[$key]['id'],
+                    $this->recordForUpdate($record, $existing[$key])
+                );
                 $updated++;
             } else {
                 $createdRecord = $this->cloudflare->createDnsRecord($token, $link['zone_id'], $record);
@@ -333,7 +339,12 @@ class CloudflarePro_DomainSyncService
             foreach ($records as $record) {
                 $key = $this->nameTypeKey($record);
                 if (isset($existing[$key])) {
-                    $this->cloudflare->updateDnsRecord($token, $link['zone_id'], $existing[$key]['id'], $record);
+                    $this->cloudflare->updateDnsRecord(
+                        $token,
+                        $link['zone_id'],
+                        $existing[$key]['id'],
+                        $this->recordForUpdate($record, $existing[$key])
+                    );
                     $updated++;
                 } else {
                     $this->cloudflare->createDnsRecord($token, $link['zone_id'], $record);
@@ -450,10 +461,11 @@ class CloudflarePro_DomainSyncService
     {
         $link = $this->domains->find($linkId);
         $token = $this->tokens->secret($link['token_id']);
+        $settings = $this->settings->all();
         $target = null;
 
         foreach ($this->plesk->recordsForDomainId($link['domain_id']) as $record) {
-            $payload = $this->cloudflareRecord($record);
+            $payload = $this->cloudflareRecord($record, $settings, true);
             if ($payload && $this->recordKey($payload) === $recordKey) {
                 $target = $payload;
                 break;
@@ -474,7 +486,12 @@ class CloudflarePro_DomainSyncService
         }
 
         if ($existing && !empty($existing['id'])) {
-            $this->cloudflare->updateDnsRecord($token, $link['zone_id'], $existing['id'], $target);
+            $this->cloudflare->updateDnsRecord(
+                $token,
+                $link['zone_id'],
+                $existing['id'],
+                $this->recordForUpdate($target, $existing)
+            );
         } else {
             $this->cloudflare->createDnsRecord($token, $link['zone_id'], $target);
         }
@@ -651,6 +668,21 @@ class CloudflarePro_DomainSyncService
         }
 
         return $payload;
+    }
+
+    private function recordForUpdate(array $record, array $existingRecord)
+    {
+        if (!array_key_exists('proxied', $record)) {
+            return $record;
+        }
+
+        if (array_key_exists('proxied', $existingRecord)) {
+            $record['proxied'] = (bool) $existingRecord['proxied'];
+        } else {
+            unset($record['proxied']);
+        }
+
+        return $record;
     }
 
     private function shouldReplace(array $record)
