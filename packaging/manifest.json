@@ -3,7 +3,7 @@
   "name": "Cloudflare Pro",
   "brand": "Ghost Compiler",
   "version": "1.0.0",
-  "release": "2",
+  "release": "3",
   "entry": "htdocs/index.php",
   "minimumPlesk": "18.0.0",
   "php": ">=7.2",

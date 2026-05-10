@@ -149,7 +149,7 @@ This URL points to the rolling `latest` pre-release asset. The **Package Latest*
 Pinned version installs are available after publishing a versioned release:
 
 ```sh
-plesk bin extension --install-url https://github.com/ghostcompiler/cloudflare-pro/releases/download/v1.0.0/cloudflare-pro-1.0.0-1.zip
+plesk bin extension --install-url https://github.com/ghostcompiler/cloudflare-pro/releases/download/v1.0.0/cloudflare-pro-1.0.0-3.zip
 ```
 
 Build the extension ZIP locally:
@@ -161,15 +161,23 @@ sh packaging/build.sh
 Install the local archive through Plesk CLI:
 
 ```sh
-plesk bin extension --install cloudflare-pro-1.0.0-1.zip
+plesk bin extension --install cloudflare-pro-1.0.0-3.zip
 ```
+
+For visible install feedback, use the CLI install command and watch the Plesk panel log in another terminal:
+
+```sh
+tail -f /var/log/plesk/panel.log | grep "Cloudflare Pro install"
+```
+
+The Plesk UI upload page controls its own progress display before an extension is active. Cloudflare Pro writes install milestones to `panel.log` once Plesk starts the extension lifecycle script.
 
 Or install through Plesk UI:
 
 1. Open **Plesk Admin**.
 2. Go to **Extensions**.
 3. Click **Upload Extension**.
-4. Upload `cloudflare-pro-1.0.0-1.zip`.
+4. Upload `cloudflare-pro-1.0.0-3.zip`.
 5. Open **Cloudflare Pro** from the Plesk sidebar.
 
 ## Testing
@@ -184,7 +192,7 @@ xmllint --noout meta.xml
 node -e "JSON.parse(require('fs').readFileSync('packaging/manifest.json', 'utf8'))"
 sh -n packaging/build.sh
 sh packaging/build.sh
-zip -T cloudflare-pro-1.0.0-1.zip
+zip -T cloudflare-pro-1.0.0-3.zip
 ```
 
 GitHub Actions runners are included:
