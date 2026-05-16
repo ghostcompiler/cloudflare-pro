@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.4
+
+- Rebuild the documentation index with the PM2-style long-form layout.
+- Add light and dark screenshot comparison controls to the documentation page.
+- Add copy buttons to documentation command blocks.
+
 ## 1.0.3
 
 - Harden install-time storage initialization for Plesk CLI lifecycle scripts.
