@@ -39,8 +39,11 @@ class Modules_CloudflarePro_EventListener implements EventListener
 
             $sourceDomainName = $domainName;
             $hostName = $domainName;
+            $isSubdomainEvent = false;
+            $hasSubdomainName = false;
 
             if (false !== strpos($objectType, 'subdomain') || false !== strpos($action, 'subdomain')) {
+                $isSubdomainEvent = true;
                 $subdomainName = $this->value($newValues, $oldValues, [
                     'subdomain_name',
                     'Subdomain name',
@@ -53,6 +56,7 @@ class Modules_CloudflarePro_EventListener implements EventListener
                     'OLD_SUBDOMAIN_NAME',
                 ]);
                 if ('' !== $subdomainName) {
+                    $hasSubdomainName = true;
                     $hostName = $this->composeHostName($subdomainName, $domainName);
                     if ('' === $sourceDomainName && $hostName !== $subdomainName) {
                         $sourceDomainName = $domainName;
@@ -77,6 +81,11 @@ class Modules_CloudflarePro_EventListener implements EventListener
 
             error_log('Cloudflare Pro autosync event: object=' . $objectType . ', action=' . $action . ', host=' . $hostName . ', source=' . $sourceDomainName);
             if ($this->isDeleteAction($action)) {
+                if ($isSubdomainEvent && (!$hasSubdomainName || $hostName === $domainName)) {
+                    error_log('Cloudflare Pro auto delete skipped: subdomain delete event did not include a concrete subdomain host.');
+                    return;
+                }
+
                 CloudflarePro_DomainSyncService::autoDeleteHost($hostName);
                 return;
             }

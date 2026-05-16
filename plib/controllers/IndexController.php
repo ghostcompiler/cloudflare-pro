@@ -552,6 +552,7 @@ class IndexController extends pm_Controller_Action
                 'proxy_cname' => $this->truthyPost('proxy_cname'),
                 'log_api_requests' => $this->truthyPost('log_api_requests'),
                 'validate_token_before_sync' => $this->truthyPost('validate_token_before_sync'),
+                'create_www_for_subdomains' => $this->truthyPost('create_www_for_subdomains'),
             ]);
 
             return $this->jsonResponse(true, 'Settings saved successfully.', [
@@ -593,7 +594,7 @@ class IndexController extends pm_Controller_Action
         $meta = [
             'id' => 'cloudflare-pro',
             'name' => 'Cloudflare Pro',
-            'version' => '1.0.4',
+            'version' => '1.0.5',
             'category' => 'DNS',
             'vendorUrl' => 'https://ghostcompiler.com',
             'pleskMinVersion' => '18.0.0',

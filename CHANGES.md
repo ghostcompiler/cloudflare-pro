@@ -1,10 +1,18 @@
 # Changelog
 
+## 1.0.5
+
+- Add optional Cloudflare-only www companion records for subdomain autosync.
+- Protect delete autosync so only concrete child hostnames are removed from Cloudflare.
+- Improve DNS record sync reliability by skipping unchanged Cloudflare updates.
+- Refresh extension documentation and screenshots for clearer installation, setup, and troubleshooting.
+- Add multiple light-theme screenshots for the Plesk extension information page.
+
 ## 1.0.4
 
-- Rebuild the documentation index with the PM2-style long-form layout.
-- Add light and dark screenshot comparison controls to the documentation page.
-- Add copy buttons to documentation command blocks.
+- Refresh the public documentation site with install, feature, screenshot, and troubleshooting sections.
+- Add copy controls to documentation command examples.
+- Improve the extension information page copy and version display.
 
 ## 1.0.3
 

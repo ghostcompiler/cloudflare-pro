@@ -1118,6 +1118,11 @@ const settingsGroups = [
         title: 'Log Cloudflare API calls',
         description: 'Store request and response details in API Logs.',
       },
+      {
+        key: 'create_www_for_subdomains',
+        title: 'Create www record for subdomains',
+        description: 'When autosync handles a subdomain, also create matching www records in Cloudflare and remove those companions when the subdomain is deleted.',
+      },
     ],
   },
   {
@@ -1126,7 +1131,7 @@ const settingsGroups = [
       {
         key: 'remove_records_on_domain_delete',
         title: 'Remove records automatically on domain delete',
-        description: 'Delete matching Cloudflare DNS records when a Plesk domain is removed.',
+        description: 'Delete concrete child hostnames from Cloudflare, while skipping ambiguous apex events to protect the zone.',
         intent: 'warning',
       },
     ],
@@ -1881,7 +1886,7 @@ function SettingsApp({ saveAction, initialSettings }) {
 
 function AboutApp({ info, logo }) {
   const target = document.getElementById('gc-about-panel');
-  const version = info.version || '1.0.3';
+  const version = info.version || '1.0.5';
   const highlights = [
     {
       icon: 'cloud',

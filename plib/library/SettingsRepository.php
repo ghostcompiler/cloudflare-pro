@@ -13,6 +13,7 @@ class Modules_CloudflarePro_SettingsRepository
         'proxy_cname' => false,
         'log_api_requests' => true,
         'validate_token_before_sync' => true,
+        'create_www_for_subdomains' => false,
     ];
 
     public function __construct(array $owner = null)

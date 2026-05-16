@@ -23,7 +23,7 @@ It rebuilds `cloudflare-pro.zip` from `main` on every push and when the workflow
 After publishing a versioned release:
 
 ```sh
-plesk bin extension --install-url https://github.com/ghostcompiler/cloudflare-pro/releases/download/v1.0.4/cloudflare-pro-1.0.4.zip
+plesk bin extension --install-url https://github.com/ghostcompiler/cloudflare-pro/releases/download/v1.0.5/cloudflare-pro-1.0.5.zip
 ```
 
 ## Build Package Locally
@@ -37,7 +37,7 @@ sh packaging/build.sh
 The script creates:
 
 ```text
-cloudflare-pro-1.0.4.zip
+cloudflare-pro-1.0.5.zip
 ```
 
 ## Install Local Package
@@ -45,7 +45,7 @@ cloudflare-pro-1.0.4.zip
 Install through Plesk CLI:
 
 ```sh
-plesk bin extension --install cloudflare-pro-1.0.4.zip
+plesk bin extension --install cloudflare-pro-1.0.5.zip
 ```
 
 Or install through Plesk UI:
@@ -53,7 +53,7 @@ Or install through Plesk UI:
 1. Open **Plesk Admin**.
 2. Go to **Extensions**.
 3. Click **Upload Extension**.
-4. Upload `cloudflare-pro-1.0.4.zip`.
+4. Upload `cloudflare-pro-1.0.5.zip`.
 5. Open **Cloudflare Pro** from the Plesk sidebar.
 
 ## Test Before Packaging
@@ -68,7 +68,7 @@ xmllint --noout meta.xml
 node -e "JSON.parse(require('fs').readFileSync('packaging/manifest.json', 'utf8'))"
 sh -n packaging/build.sh
 sh packaging/build.sh
-zip -T cloudflare-pro-1.0.4.zip
+zip -T cloudflare-pro-1.0.5.zip
 ```
 
 ## GitHub Runners

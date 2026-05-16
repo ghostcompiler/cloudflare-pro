@@ -10,5 +10,7 @@ Key capabilities:
 - Domain-to-zone linking for matching Plesk and Cloudflare zones.
 - DNS record import, export, sync, and selected-record actions.
 - Optional autosync controls.
+- Optional Cloudflare-only www companion records for subdomains.
+- Safer delete autosync that skips ambiguous apex events and removes only concrete child hostnames.
 - API request logging for troubleshooting.
 - Proxy defaults that start disabled unless an administrator enables them.

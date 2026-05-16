@@ -19,14 +19,14 @@
   <meta property="og:title" content="Cloudflare Pro for Plesk">
   <meta property="og:description" content="Sync Plesk DNS records with Cloudflare using token-scoped access, API logs, per-user settings, and background sync jobs.">
   <meta property="og:url" content="https://ghostcompiler.github.io/cloudflare-pro/">
-  <meta property="og:image" content="https://ghostcompiler.github.io/cloudflare-pro/screenshots/dark_domain.png">
+  <meta property="og:image" content="https://ghostcompiler.github.io/cloudflare-pro/screenshots/light_domain.png">
   <meta property="og:image:alt" content="Cloudflare Pro domain dashboard in Plesk dark theme">
   <meta property="og:locale" content="en_US">
 
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Cloudflare Pro for Plesk">
   <meta name="twitter:description" content="Import, export, compare, and sync Plesk DNS records with Cloudflare from a Plesk extension.">
-  <meta name="twitter:image" content="https://ghostcompiler.github.io/cloudflare-pro/screenshots/dark_domain.png">
+  <meta name="twitter:image" content="https://ghostcompiler.github.io/cloudflare-pro/screenshots/light_domain.png">
   <meta name="twitter:image:alt" content="Cloudflare Pro domain dashboard in Plesk dark theme">
 
   <script type="application/ld+json">
@@ -39,14 +39,14 @@
     "description": "A Plesk extension for syncing Plesk DNS records with Cloudflare using scoped tokens, record comparison, API logs, settings, and background sync jobs.",
     "url": "https://ghostcompiler.github.io/cloudflare-pro/",
     "downloadUrl": "https://github.com/ghostcompiler/cloudflare-pro/releases/download/latest/cloudflare-pro.zip",
-    "softwareVersion": "1.0.4",
+    "softwareVersion": "1.0.5",
     "author": {
       "@type": "Organization",
       "name": "Ghost Compiler",
       "url": "https://github.com/ghostcompiler"
     },
     "codeRepository": "https://github.com/ghostcompiler/cloudflare-pro",
-    "image": "https://ghostcompiler.github.io/cloudflare-pro/screenshots/dark_domain.png",
+    "image": "https://ghostcompiler.github.io/cloudflare-pro/screenshots/light_domain.png",
     "offers": {
       "@type": "Offer",
       "price": "0",
@@ -196,7 +196,7 @@
       inset: 0;
       background:
         linear-gradient(90deg, rgba(6, 15, 27, .96) 0%, rgba(6, 15, 27, .78) 44%, rgba(6, 15, 27, .20) 100%),
-        url("screenshots/dark_domain.png") center / cover no-repeat;
+        url("screenshots/light_domain.png") center / cover no-repeat;
       transform: scale(1.02);
     }
 
@@ -680,7 +680,7 @@
         <div class="card"><h3>Proxy controls</h3><p>Toggle Cloudflare proxy state for supported A, AAAA, and CNAME records.</p></div>
         <div class="card"><h3>Token storage</h3><p>Add, validate, edit, and delete Cloudflare API tokens without exposing another user's credentials.</p></div>
         <div class="card"><h3>API logs</h3><p>Search, paginate, view, copy, and remove Cloudflare API request and response logs.</p></div>
-        <div class="card"><h3>Settings</h3><p>Control autosync, token validation, API logging, delete cleanup, and proxy defaults per user.</p></div>
+        <div class="card"><h3>Settings</h3><p>Control autosync, token validation, API logging, safe delete cleanup, subdomain www companions, and proxy defaults per user.</p></div>
         <div class="card"><h3>Autosync</h3><p>Use Plesk events to push supported DNS changes to Cloudflare when autosync is enabled.</p></div>
       </div>
     </section>
@@ -733,6 +733,8 @@
             <li><strong>Enable Autosync</strong>: allows automatic DNS pushes.</li>
             <li><strong>Validate token before sync</strong>: verifies token status before sync jobs.</li>
             <li><strong>Log Cloudflare API calls</strong>: stores explicit Cloudflare API request logs.</li>
+            <li><strong>Create www record for subdomains</strong>: creates matching Cloudflare-only www records during subdomain autosync and removes the companion record when that subdomain is deleted.</li>
+            <li><strong>Remove records automatically on domain delete</strong>: removes concrete deleted child hostnames only; ambiguous apex delete events are skipped to protect the zone.</li>
             <li><strong>Proxy defaults</strong>: controls default proxy state for new A, AAAA, and CNAME records.</li>
           </ul>
         </div>
@@ -777,7 +779,7 @@
       <p class="section-copy">Use the rolling latest package for most installations, or build the ZIP locally from the repository.</p>
       <pre><code>plesk bin extension --install-url https://github.com/ghostcompiler/cloudflare-pro/releases/download/latest/cloudflare-pro.zip</code></pre>
       <pre><code>sh packaging/build.sh
-plesk bin extension --install cloudflare-pro-1.0.4.zip</code></pre>
+plesk bin extension --install cloudflare-pro-1.0.5.zip</code></pre>
       <ol class="steps">
         <li>Open the affected service plan or subscription in Plesk.</li>
         <li>Enable Cloudflare Pro access where needed.</li>

@@ -45,7 +45,7 @@ class CloudflarePro_DomainSyncService
                 $lastError = null;
                 for ($attempt = 1; $attempt <= max(1, (int) $attempts); $attempt++) {
                     try {
-                        $result = $service->syncLinkIncremental($link['id'], $sourceDomainName);
+                        $result = $service->syncLinkIncremental($link['id'], $sourceDomainName, $hostName);
                         if (empty($result['empty_source'])) {
                             $results[] = $result;
                             break;
@@ -315,7 +315,7 @@ class CloudflarePro_DomainSyncService
         ];
     }
 
-    public function syncLinkIncremental($linkId, $sourceDomainName = null)
+    public function syncLinkIncremental($linkId, $sourceDomainName = null, $targetHostName = null)
     {
         $link = $this->domains->find($linkId);
         $token = $this->tokens->secret($link['token_id']);
@@ -339,6 +339,7 @@ class CloudflarePro_DomainSyncService
                 $payload = $this->cloudflareRecord($record, $settings, true);
                 return $payload && $this->recordBelongsToZone($payload, $link['zone_name']) ? $payload : null;
             }, $sourceRecords)));
+            $records = $this->appendWwwSubdomainRecords($records, $settings, $link['zone_name'], $targetHostName);
 
             if (!$records) {
                 error_log('Cloudflare Pro autosync found no source DNS records for ' . ($sourceDomainName ?: $link['domain_name']));
@@ -364,11 +365,16 @@ class CloudflarePro_DomainSyncService
             foreach ($records as $record) {
                 $key = $this->nameTypeKey($record);
                 if (isset($existing[$key])) {
+                    $candidate = $this->recordForUpdate($record, $existing[$key]);
+                    if ($this->recordsMatch($candidate, $this->normalizeCloudflareRecord($existing[$key]))) {
+                        continue;
+                    }
+
                     $this->cloudflare->updateDnsRecord(
                         $token,
                         $link['zone_id'],
                         $existing[$key]['id'],
-                        $this->recordForUpdate($record, $existing[$key])
+                        $candidate
                     );
                     $updated++;
                 } else {
@@ -604,8 +610,19 @@ class CloudflarePro_DomainSyncService
     {
         $link = $this->domains->find($linkId);
         $token = $this->tokens->secret($link['token_id']);
+        $settings = $this->settings->all();
         $hostName = strtolower(rtrim((string) $hostName, '.'));
         $deleted = 0;
+
+        if ($hostName === strtolower(rtrim((string) $link['domain_name'], '.')) ||
+            $hostName === strtolower(rtrim((string) $link['zone_name'], '.'))) {
+            error_log('Cloudflare Pro auto delete skipped for apex host ' . $hostName . ' to avoid deleting records after an ambiguous Plesk event.');
+
+            return [
+                'deleted' => 0,
+                'skipped' => true,
+            ];
+        }
 
         foreach ($this->cloudflare->listDnsRecords($token, $link['zone_id']) as $record) {
             if (empty($record['id'])) {
@@ -613,7 +630,7 @@ class CloudflarePro_DomainSyncService
             }
 
             $normalized = $this->normalizeCloudflareRecord($record);
-            if (!$this->shouldReplace($normalized) || !$this->recordMatchesDeletedHost($normalized, $hostName)) {
+            if (!$this->shouldReplace($normalized) || !$this->recordMatchesDeletedHost($normalized, $hostName, $settings)) {
                 continue;
             }
 
@@ -660,11 +677,59 @@ class CloudflarePro_DomainSyncService
         return $name === $zoneName || substr($name, -strlen('.' . $zoneName)) === '.' . $zoneName;
     }
 
-    private function recordMatchesDeletedHost(array $record, $hostName)
+    private function appendWwwSubdomainRecords(array $records, array $settings, $zoneName, $targetHostName)
+    {
+        if (empty($settings['create_www_for_subdomains'])) {
+            return $records;
+        }
+
+        $targetHostName = strtolower(rtrim((string) $targetHostName, '.'));
+        $zoneName = strtolower(rtrim((string) $zoneName, '.'));
+        if ('' === $targetHostName ||
+            $targetHostName === $zoneName ||
+            0 === strpos($targetHostName, 'www.') ||
+            substr($targetHostName, -strlen('.' . $zoneName)) !== '.' . $zoneName) {
+            return $records;
+        }
+
+        $wwwName = 'www.' . $targetHostName;
+        $existingKeys = [];
+        foreach ($records as $record) {
+            $existingKeys[$this->nameTypeKey($record)] = true;
+        }
+
+        foreach ($records as $record) {
+            $type = strtoupper(isset($record['type']) ? $record['type'] : '');
+            $name = strtolower(rtrim(isset($record['name']) ? $record['name'] : '', '.'));
+            if ($name !== $targetHostName || !in_array($type, ['A', 'AAAA', 'CNAME'], true)) {
+                continue;
+            }
+
+            $companion = $record;
+            $companion['name'] = $wwwName;
+            $key = $this->nameTypeKey($companion);
+            if (isset($existingKeys[$key])) {
+                continue;
+            }
+
+            $existingKeys[$key] = true;
+            $records[] = $companion;
+        }
+
+        return $records;
+    }
+
+    private function recordMatchesDeletedHost(array $record, $hostName, array $settings)
     {
         $name = strtolower(rtrim(isset($record['name']) ? $record['name'] : '', '.'));
 
-        return $name === $hostName || substr($name, -strlen('.' . $hostName)) === '.' . $hostName;
+        if ($name === $hostName) {
+            return true;
+        }
+
+        return !empty($settings['create_www_for_subdomains']) &&
+            0 !== strpos($hostName, 'www.') &&
+            $name === 'www.' . $hostName;
     }
 
     private function cloudflareRecord($record, array $settings = [], $applyProxyDefaults = false)

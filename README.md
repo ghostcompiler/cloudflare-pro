@@ -93,9 +93,10 @@ Developer and operator documentation lives in [`docs`](docs):
 Settings are per user and stored in one JSON row.
 
 - **Enable Autosync:** Allows automatic DNS pushes from Plesk events.
-- **Remove records automatically on domain delete:** Enables cleanup behavior for matching Cloudflare records when supported by the event path.
+- **Remove records automatically on domain delete:** Enables Cloudflare cleanup for concrete deleted child hostnames. Ambiguous apex events are skipped so a subdomain delete cannot remove every zone record.
 - **Validate token before sync:** Verifies token status before sync jobs.
 - **Log Cloudflare API calls:** Stores request/response metadata in API Logs.
+- **Create www record for subdomains:** When autosync handles a subdomain, also creates matching `www.<subdomain>` records in Cloudflare without requiring that hostname to exist in Plesk. When that subdomain is deleted, the companion `www.<subdomain>` record is removed only if this toggle is enabled.
 - **Enable proxy for A records:** Default Cloudflare proxy state for A records.
 - **Enable proxy for AAAA records:** Default Cloudflare proxy state for AAAA records.
 - **Enable proxy for CNAME records:** Default Cloudflare proxy state for CNAME records.
@@ -126,7 +127,7 @@ This URL points to the rolling `latest` pre-release asset. The **Package Latest*
 Pinned version installs are available after publishing a versioned release:
 
 ```sh
-plesk bin extension --install-url https://github.com/ghostcompiler/cloudflare-pro/releases/download/v1.0.4/cloudflare-pro-1.0.4.zip
+plesk bin extension --install-url https://github.com/ghostcompiler/cloudflare-pro/releases/download/v1.0.5/cloudflare-pro-1.0.5.zip
 ```
 
 Build the extension ZIP locally:
@@ -138,7 +139,7 @@ sh packaging/build.sh
 Install the local archive through Plesk CLI:
 
 ```sh
-plesk bin extension --install cloudflare-pro-1.0.4.zip
+plesk bin extension --install cloudflare-pro-1.0.5.zip
 ```
 
 Or install through Plesk UI:
@@ -146,7 +147,7 @@ Or install through Plesk UI:
 1. Open **Plesk Admin**.
 2. Go to **Extensions**.
 3. Click **Upload Extension**.
-4. Upload `cloudflare-pro-1.0.4.zip`.
+4. Upload `cloudflare-pro-1.0.5.zip`.
 5. Open **Cloudflare Pro** from the Plesk sidebar.
 
 ## Testing
@@ -161,7 +162,7 @@ xmllint --noout meta.xml
 node -e "JSON.parse(require('fs').readFileSync('packaging/manifest.json', 'utf8'))"
 sh -n packaging/build.sh
 sh packaging/build.sh
-zip -T cloudflare-pro-1.0.4.zip
+zip -T cloudflare-pro-1.0.5.zip
 ```
 
 GitHub Actions runners are included:

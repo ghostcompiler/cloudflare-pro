@@ -38,6 +38,8 @@ All JSON actions live in `plib/controllers/IndexController.php` and are called f
 ## Settings Actions
 
 - `update-settings`: updates one setting inside the per-user JSON payload.
+- `create_www_for_subdomains`: controls whether autosync creates and later removes Cloudflare-only `www.<subdomain>` companion records.
+- `remove_records_on_domain_delete`: enables delete cleanup for concrete child hostnames while skipping ambiguous apex delete events.
 
 ## Cloudflare Routes Used
 

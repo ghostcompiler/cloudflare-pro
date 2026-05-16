@@ -57,6 +57,8 @@ The database is removed by `plib/scripts/pre-uninstall.php`.
 
 `Modules_CloudflarePro_EventListener` receives Plesk events, filters DNS/domain/subdomain events, extracts the host name, finds linked Cloudflare zones, and calls `CloudflarePro_DomainSyncService::autoSyncHost()`.
 
+When delete cleanup is enabled, autosync deletes only concrete child hostnames from Cloudflare. Ambiguous apex events are skipped to avoid removing a full zone after a subdomain delete. If `create_www_for_subdomains` is enabled, the matching `www.<subdomain>` companion record is cleaned up with the deleted subdomain.
+
 Autosync only runs when:
 
 - the user setting `enable_autosync` is enabled
