@@ -6,27 +6,13 @@ require_once pm_Context::getPlibDir() . 'library/TokenRepository.php';
 require_once pm_Context::getPlibDir() . 'library/SettingsRepository.php';
 require_once pm_Context::getPlibDir() . 'library/DomainRepository.php';
 
-function cloudflareProInstallLog($message)
-{
-    $message = 'Cloudflare Pro install: ' . $message;
-    if (class_exists('pm_Log')) {
-        pm_Log::info($message);
-    } else {
-        error_log($message);
-    }
-}
+$systemOwner = ['id' => 'system', 'login' => 'system'];
 
-cloudflareProInstallLog('started.');
-
-$repository = new Modules_CloudflarePro_TokenRepository();
+$repository = new Modules_CloudflarePro_TokenRepository($systemOwner);
 $repository->init();
-cloudflareProInstallLog('token storage initialized.');
 
-$settings = new Modules_CloudflarePro_SettingsRepository();
+$settings = new Modules_CloudflarePro_SettingsRepository($systemOwner);
 $settings->init();
-cloudflareProInstallLog('settings storage initialized.');
 
-$domains = new Modules_CloudflarePro_DomainRepository();
+$domains = new Modules_CloudflarePro_DomainRepository($systemOwner);
 $domains->init();
-cloudflareProInstallLog('domain link storage initialized.');
-cloudflareProInstallLog('completed successfully.');

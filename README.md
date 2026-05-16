@@ -164,14 +164,6 @@ Install the local archive through Plesk CLI:
 plesk bin extension --install cloudflare-pro-1.0.0-3.zip
 ```
 
-For visible install feedback, use the CLI install command and watch the Plesk panel log in another terminal:
-
-```sh
-tail -f /var/log/plesk/panel.log | grep "Cloudflare Pro install"
-```
-
-The Plesk UI upload page controls its own progress display before an extension is active. Cloudflare Pro writes install milestones to `panel.log` once Plesk starts the extension lifecycle script.
-
 Or install through Plesk UI:
 
 1. Open **Plesk Admin**.

@@ -204,7 +204,7 @@ class Modules_CloudflarePro_ApiLogRepository
                     'login' => $login,
                 ];
             }
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
         }
 
         return [

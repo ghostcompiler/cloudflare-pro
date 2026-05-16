@@ -363,7 +363,7 @@ class Modules_CloudflarePro_DomainRepository
             if ('' !== $id) {
                 return ['id' => $id, 'login' => $login];
             }
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
         }
 
         return ['id' => 'system', 'login' => 'system'];

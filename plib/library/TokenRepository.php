@@ -295,7 +295,7 @@ class Modules_CloudflarePro_TokenRepository
                     'login' => $login,
                 ];
             }
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
         }
 
         return [

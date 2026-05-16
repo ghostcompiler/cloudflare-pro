@@ -97,7 +97,7 @@ class Modules_CloudflarePro_SettingsRepository
                     'login' => $login,
                 ];
             }
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
         }
 
         return [
