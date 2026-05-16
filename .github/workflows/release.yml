@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag, for example v1.0.0"
+        description: "Release tag, for example v1.0.3"
         required: true
         type: string
 
@@ -49,7 +49,6 @@ jobs:
         id: version
         run: |
           meta_version="$(php -r '$xml = simplexml_load_file("meta.xml"); echo trim((string) $xml->version);')"
-          meta_release="$(php -r '$xml = simplexml_load_file("meta.xml"); echo trim((string) $xml->release);')"
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             tag="${{ inputs.tag }}"
           else
@@ -61,7 +60,6 @@ jobs:
             exit 1
           fi
           echo "version=$meta_version" >> "$GITHUB_OUTPUT"
-          echo "release=$meta_release" >> "$GITHUB_OUTPUT"
           echo "tag=v$meta_version" >> "$GITHUB_OUTPUT"
 
       - name: Validate package inputs
@@ -77,9 +75,8 @@ jobs:
       - name: Build release ZIP asset
         run: |
           version="${{ steps.version.outputs.version }}"
-          release="${{ steps.version.outputs.release }}"
           sh packaging/build.sh
-          zip -T "cloudflare-pro-${version}-${release}.zip"
+          zip -T "cloudflare-pro-${version}.zip"
 
       - name: Generate release notes
         run: |
@@ -94,11 +91,10 @@ jobs:
         run: |
           tag="${{ steps.version.outputs.tag }}"
           version="${{ steps.version.outputs.version }}"
-          release="${{ steps.version.outputs.release }}"
           if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" "cloudflare-pro-${version}-${release}.zip" --clobber
+            gh release upload "$tag" "cloudflare-pro-${version}.zip" --clobber
           else
-            gh release create "$tag" "cloudflare-pro-${version}-${release}.zip" \
+            gh release create "$tag" "cloudflare-pro-${version}.zip" \
               --title "$tag" \
               --notes-file release-notes.md
           fi

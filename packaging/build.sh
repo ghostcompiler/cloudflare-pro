@@ -3,8 +3,7 @@ set -eu
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 VERSION=$(php -r '$xml = simplexml_load_file("meta.xml"); echo trim((string) $xml->version);')
-RELEASE=$(php -r '$xml = simplexml_load_file("meta.xml"); echo trim((string) $xml->release);')
-OUT="${ROOT_DIR}/cloudflare-pro-${VERSION}-${RELEASE}.zip"
+OUT="${ROOT_DIR}/cloudflare-pro-${VERSION}.zip"
 
 cd "$ROOT_DIR"
 

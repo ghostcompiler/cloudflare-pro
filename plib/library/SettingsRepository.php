@@ -8,9 +8,9 @@ class Modules_CloudflarePro_SettingsRepository
     private $defaults = [
         'enable_autosync' => true,
         'remove_records_on_domain_delete' => true,
-        'proxy_a' => true,
-        'proxy_aaaa' => true,
-        'proxy_cname' => true,
+        'proxy_a' => false,
+        'proxy_aaaa' => false,
+        'proxy_cname' => false,
         'log_api_requests' => true,
         'validate_token_before_sync' => true,
     ];

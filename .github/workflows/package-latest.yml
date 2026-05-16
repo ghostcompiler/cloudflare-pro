@@ -50,13 +50,11 @@ jobs:
         id: version
         run: |
           version="$(php -r '$xml = simplexml_load_file("meta.xml"); echo trim((string) $xml->version);')"
-          release="$(php -r '$xml = simplexml_load_file("meta.xml"); echo trim((string) $xml->release);')"
-          if [ -z "$version" ] || [ -z "$release" ]; then
-            echo "Unable to read version/release from meta.xml" >&2
+          if [ -z "$version" ]; then
+            echo "Unable to read version from meta.xml" >&2
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "release=$release" >> "$GITHUB_OUTPUT"
 
       - name: Validate package inputs
         run: |
@@ -71,17 +69,16 @@ jobs:
       - name: Build latest ZIP
         run: |
           version="${{ steps.version.outputs.version }}"
-          release="${{ steps.version.outputs.release }}"
           sh packaging/build.sh
-          zip -T "cloudflare-pro-${version}-${release}.zip"
-          cp "cloudflare-pro-${version}-${release}.zip" cloudflare-pro.zip
+          zip -T "cloudflare-pro-${version}.zip"
+          cp "cloudflare-pro-${version}.zip" cloudflare-pro.zip
 
       - name: Prepare latest release notes
         run: |
           cat > latest-release-notes.md <<EOF
           Rolling latest package for Cloudflare Pro.
 
-          Version: ${{ steps.version.outputs.version }}-${{ steps.version.outputs.release }}
+          Version: ${{ steps.version.outputs.version }}
           Commit: ${GITHUB_SHA}
 
           Install with:
@@ -103,8 +100,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           version="${{ steps.version.outputs.version }}"
-          release="${{ steps.version.outputs.release }}"
-          title="Cloudflare Pro latest (v${version}-${release})"
+          title="Cloudflare Pro latest (v${version})"
           if gh release view latest >/dev/null 2>&1; then
             gh release upload latest cloudflare-pro.zip --clobber
             gh release edit latest --title "$title" --notes-file latest-release-notes.md --prerelease

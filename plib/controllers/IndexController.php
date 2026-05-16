@@ -201,7 +201,7 @@ class IndexController extends pm_Controller_Action
                 ]));
             }
 
-            $batchSize = 3;
+            $batchSize = 25;
             $items = array_slice($job['items'], $job['processed'], $batchSize);
             $processed = $job['processed'];
             $created = $job['created'];
@@ -209,18 +209,19 @@ class IndexController extends pm_Controller_Action
             $failed = $job['failed'];
             $error = null;
 
-            foreach ($items as $item) {
-                try {
-                    $result = 'import' === $job['mode']
-                        ? $service->processImportQueueBatch($job['link_id'], [$item])
-                        : $service->processSyncQueueBatch($job['link_id'], [$item]);
-                    $created += (int) $result['created'];
-                    $updated += (int) $result['updated'];
-                } catch (Throwable $e) {
-                    $failed++;
-                    $error = $e->getMessage();
-                }
-                $processed++;
+            try {
+                $result = 'import' === $job['mode']
+                    ? $service->processImportQueueBatch($job['link_id'], $items)
+                    : $service->processSyncQueueBatch($job['link_id'], $items);
+                $created += (int) $result['created'];
+                $updated += (int) $result['updated'];
+                $failed += isset($result['failed']) ? (int) $result['failed'] : 0;
+                $error = isset($result['error']) ? $result['error'] : null;
+                $processed += count($items);
+            } catch (Throwable $e) {
+                $failed += count($items);
+                $processed += count($items);
+                $error = $e->getMessage();
             }
 
             $status = $processed >= $job['total'] ? 'done' : 'running';
@@ -563,18 +564,17 @@ class IndexController extends pm_Controller_Action
 
     public function aboutAction()
     {
+        $meta = $this->extensionMeta();
+
         $this->view->aboutInfo = [
-            'name' => 'Cloudflare Pro',
+            'name' => $meta['name'],
             'brand' => 'Ghost Compiler',
-            'id' => 'cloudflare-pro',
-            'version' => '1.0.0',
-            'release' => '1',
-            'category' => 'DNS',
-            'vendorUrl' => 'https://ghostcompiler.com',
-            'githubUrl' => 'https://github.com/ghostcompiler',
-            'developerLogo' => 'https://assets.ghostcompiler.in/logo.png',
+            'id' => $meta['id'],
+            'version' => $meta['version'],
+            'category' => $meta['category'],
+            'vendorUrl' => $meta['vendorUrl'],
             'repositoryUrl' => 'https://github.com/ghostcompiler/cloudflare-pro',
-            'pleskMinVersion' => '18.0.0',
+            'pleskMinVersion' => $meta['pleskMinVersion'],
             'uiLibrary' => 'Plesk UI Library',
             'uiLibraryVersion' => '3.46.5',
             'description' => 'Cloudflare Pro connects Plesk DNS zones with Cloudflare zones using per-user tokens, synced records, API logs, and autosync controls.',
@@ -586,6 +586,37 @@ class IndexController extends pm_Controller_Action
             'Ghost Compiler extension for Cloudflare management.',
             'about'
         );
+    }
+
+    private function extensionMeta()
+    {
+        $meta = [
+            'id' => 'cloudflare-pro',
+            'name' => 'Cloudflare Pro',
+            'version' => '1.0.3',
+            'category' => 'DNS',
+            'vendorUrl' => 'https://ghostcompiler.com',
+            'pleskMinVersion' => '18.0.0',
+        ];
+
+        $metaPath = dirname(rtrim(pm_Context::getPlibDir(), DIRECTORY_SEPARATOR)) . DIRECTORY_SEPARATOR . 'meta.xml';
+        if (!is_readable($metaPath)) {
+            return $meta;
+        }
+
+        $xml = simplexml_load_file($metaPath);
+        if (!$xml) {
+            return $meta;
+        }
+
+        return [
+            'id' => trim((string) $xml->id) ?: $meta['id'],
+            'name' => trim((string) $xml->name) ?: $meta['name'],
+            'version' => trim((string) $xml->version) ?: $meta['version'],
+            'category' => strtoupper(trim((string) $xml->category)) ?: $meta['category'],
+            'vendorUrl' => trim((string) $xml->url) ?: $meta['vendorUrl'],
+            'pleskMinVersion' => trim((string) $xml->plesk_min_version) ?: $meta['pleskMinVersion'],
+        ];
     }
 
     private function renderTab($title, $emptyTitle, $emptyDescription, $id = null)

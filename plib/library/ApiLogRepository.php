@@ -96,6 +96,11 @@ class Modules_CloudflarePro_ApiLogRepository
         ]);
     }
 
+    public function owner()
+    {
+        return $this->owner;
+    }
+
     private function trim()
     {
         $stmt = $this->db->prepare(

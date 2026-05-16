@@ -96,7 +96,7 @@
 #gc-records-list .pul-list__row,
 #gc-records-list .pul-list__head-row {
     display: grid;
-    grid-template-columns: minmax(70px, .35fr) minmax(230px, 1.1fr) minmax(120px, .55fr) minmax(560px, 2.75fr) minmax(80px, .35fr) minmax(150px, .7fr);
+    grid-template-columns: minmax(38px, 38px) minmax(70px, .35fr) minmax(230px, 1.1fr) minmax(120px, .55fr) minmax(560px, 2.75fr) minmax(80px, .35fr);
     align-items: center;
     column-gap: 18px;
 }
@@ -105,7 +105,7 @@
     min-width: 0;
 }
 
-#gc-records-list .pul-list__cell:not(:nth-child(4)) {
+#gc-records-list .pul-list__cell:not(:nth-child(5)) {
     white-space: nowrap;
 }
 
@@ -145,6 +145,14 @@
     width: 38px;
     padding-left: 0;
     padding-right: 0;
+}
+
+.gc-record-main-actions {
+    margin: 0 0 12px;
+}
+
+.gc-record-selection-actions {
+    margin: 0 0 16px;
 }
 
 #gc-domain-list .pul-list__cell {

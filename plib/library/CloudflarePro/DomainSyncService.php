@@ -118,29 +118,31 @@ class CloudflarePro_DomainSyncService
             return $token['id'];
         }, $tokens));
 
-        foreach ($tokens as $token) {
-            try {
-                foreach ($this->cloudflare->listZones($token['secret']) as $zone) {
-                    $zoneName = strtolower(rtrim(isset($zone['name']) ? $zone['name'] : '', '.'));
-                    if (!isset($pleskDomains[$zoneName])) {
-                        continue;
-                    }
+        $this->cloudflare->withoutLogging(function () use ($tokens, $pleskDomains) {
+            foreach ($tokens as $token) {
+                try {
+                    foreach ($this->cloudflare->listZones($token['secret']) as $zone) {
+                        $zoneName = strtolower(rtrim(isset($zone['name']) ? $zone['name'] : '', '.'));
+                        if (!isset($pleskDomains[$zoneName])) {
+                            continue;
+                        }
 
-                    $domain = $pleskDomains[$zoneName];
-                    $this->domains->upsert([
-                        'domain_id' => (string) $domain->getId(),
-                        'domain_name' => $zoneName,
-                        'token_id' => (int) $token['id'],
-                        'token_name' => $token['name'],
-                        'zone_id' => (string) $zone['id'],
-                        'zone_name' => $zoneName,
-                        'status' => isset($zone['status']) ? (string) $zone['status'] : 'linked',
-                    ]);
+                        $domain = $pleskDomains[$zoneName];
+                        $this->domains->upsert([
+                            'domain_id' => (string) $domain->getId(),
+                            'domain_name' => $zoneName,
+                            'token_id' => (int) $token['id'],
+                            'token_name' => $token['name'],
+                            'zone_id' => (string) $zone['id'],
+                            'zone_name' => $zoneName,
+                            'status' => isset($zone['status']) ? (string) $zone['status'] : 'linked',
+                        ]);
+                    }
+                } catch (Throwable $e) {
+                    error_log('Cloudflare Pro domain discovery failed: ' . $e->getMessage());
                 }
-            } catch (Throwable $e) {
-                error_log('Cloudflare Pro domain discovery failed: ' . $e->getMessage());
             }
-        }
+        });
 
         return $this->domains->all();
     }
@@ -221,6 +223,8 @@ class CloudflarePro_DomainSyncService
         $token = $this->tokens->secret($link['token_id']);
         $created = 0;
         $updated = 0;
+        $failed = 0;
+        $error = null;
 
         $existing = [];
         foreach ($this->cloudflare->listDnsRecords($token, $link['zone_id']) as $record) {
@@ -232,25 +236,35 @@ class CloudflarePro_DomainSyncService
         }
 
         foreach ($items as $record) {
-            if (!$this->recordBelongsToZone($record, $link['zone_name'])) {
-                continue;
-            }
-
-            $key = $this->nameTypeKey($record);
-            if (isset($existing[$key]) && !empty($existing[$key]['id'])) {
-                $this->cloudflare->updateDnsRecord(
-                    $token,
-                    $link['zone_id'],
-                    $existing[$key]['id'],
-                    $this->recordForUpdate($record, $existing[$key])
-                );
-                $updated++;
-            } else {
-                $createdRecord = $this->cloudflare->createDnsRecord($token, $link['zone_id'], $record);
-                if (isset($createdRecord['result']) && is_array($createdRecord['result'])) {
-                    $existing[$key] = $createdRecord['result'];
+            try {
+                if (!$this->recordBelongsToZone($record, $link['zone_name'])) {
+                    continue;
                 }
-                $created++;
+
+                $key = $this->nameTypeKey($record);
+                if (isset($existing[$key]) && !empty($existing[$key]['id'])) {
+                    $candidate = $this->recordForUpdate($record, $existing[$key]);
+                    if ($this->recordsMatch($candidate, $this->normalizeCloudflareRecord($existing[$key]))) {
+                        continue;
+                    }
+
+                    $this->cloudflare->updateDnsRecord(
+                        $token,
+                        $link['zone_id'],
+                        $existing[$key]['id'],
+                        $candidate
+                    );
+                    $updated++;
+                } else {
+                    $createdRecord = $this->cloudflare->createDnsRecord($token, $link['zone_id'], $record);
+                    if (isset($createdRecord['result']) && is_array($createdRecord['result'])) {
+                        $existing[$key] = $createdRecord['result'];
+                    }
+                    $created++;
+                }
+            } catch (Throwable $e) {
+                $failed++;
+                $error = $e->getMessage();
             }
         }
 
@@ -259,6 +273,8 @@ class CloudflarePro_DomainSyncService
         return [
             'created' => $created,
             'updated' => $updated,
+            'failed' => $failed,
+            'error' => $error,
         ];
     }
 
@@ -267,18 +283,25 @@ class CloudflarePro_DomainSyncService
         $link = $this->domains->find($linkId);
         $created = 0;
         $updated = 0;
+        $failed = 0;
+        $error = null;
 
         foreach ($items as $record) {
-            if (!$this->recordBelongsToZone($record, $link['zone_name'])) {
-                continue;
-            }
+            try {
+                if (!$this->recordBelongsToZone($record, $link['zone_name'])) {
+                    continue;
+                }
 
-            $removed = $this->plesk->removeByNameType($link['domain_id'], $record['name'], $record['type']);
-            $this->plesk->createRecordForDomainId($link['domain_id'], $record);
-            if ($removed > 0) {
-                $updated++;
-            } else {
-                $created++;
+                $removed = $this->plesk->removeByNameType($link['domain_id'], $record['name'], $record['type']);
+                $this->plesk->createRecordForDomainId($link['domain_id'], $record);
+                if ($removed > 0) {
+                    $updated++;
+                } else {
+                    $created++;
+                }
+            } catch (Throwable $e) {
+                $failed++;
+                $error = $e->getMessage();
             }
         }
 
@@ -287,6 +310,8 @@ class CloudflarePro_DomainSyncService
         return [
             'created' => $created,
             'updated' => $updated,
+            'failed' => $failed,
+            'error' => $error,
         ];
     }
 
@@ -372,9 +397,11 @@ class CloudflarePro_DomainSyncService
         $localRecords = array_values(array_filter(array_map(function ($record) {
             return $this->cloudflareRecord($record);
         }, $this->plesk->recordsForDomainId($link['domain_id']))));
-        $cloudflareRecords = array_values(array_filter(array_map(function ($record) {
-            return $this->normalizeCloudflareRecord($record);
-        }, $this->cloudflare->listDnsRecords($token, $link['zone_id']))));
+        $cloudflareRecords = $this->cloudflare->withoutLogging(function () use ($token, $link) {
+            return array_values(array_filter(array_map(function ($record) {
+                return $this->normalizeCloudflareRecord($record);
+            }, $this->cloudflare->listDnsRecords($token, $link['zone_id']))));
+        });
 
         $cloudflareByNameType = [];
         foreach ($cloudflareRecords as $record) {
@@ -689,7 +716,7 @@ class CloudflarePro_DomainSyncService
     {
         $type = strtoupper(isset($record['type']) ? $record['type'] : '');
 
-        return in_array($type, ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'PTR', 'CAA', 'DS', 'DNSKEY'], true);
+        return in_array($type, ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'PTR', 'CAA', 'DS', 'DNSKEY', 'TLSA', 'SRV'], true);
     }
 
     private function normalizeCloudflareRecord(array $record)
@@ -702,17 +729,17 @@ class CloudflarePro_DomainSyncService
             'ttl' => isset($record['ttl']) ? (int) $record['ttl'] : 1,
         ];
 
-        if (isset($record['content'])) {
+        if (!in_array($type, ['SRV', 'TLSA'], true) && isset($record['content'])) {
             $normalized['content'] = $this->normalizeContent($type, $record['content']);
         }
-        if (isset($record['priority'])) {
+        if (!in_array($type, ['SRV', 'TLSA'], true) && isset($record['priority'])) {
             $normalized['priority'] = (int) $record['priority'];
         }
         if (array_key_exists('proxied', $record)) {
             $normalized['proxied'] = (bool) $record['proxied'];
         }
         if (isset($record['data']) && is_array($record['data'])) {
-            $normalized['data'] = $record['data'];
+            $normalized['data'] = $this->normalizeRecordData($type, $record['data']);
         }
 
         return $normalized;
@@ -764,6 +791,13 @@ class CloudflarePro_DomainSyncService
             return '-';
         }
         if (isset($record['data'])) {
+            if ('SRV' === $record['type']) {
+                return $this->displaySrvData($record['data']);
+            }
+            if ('TLSA' === $record['type']) {
+                return $this->displayTlsaData($record['data']);
+            }
+
             return json_encode($record['data'], JSON_UNESCAPED_SLASHES);
         }
         if (isset($record['priority'])) {
@@ -786,10 +820,49 @@ class CloudflarePro_DomainSyncService
     private function normalizeContent($type, $content)
     {
         $content = trim((string) $content);
-        if (in_array($type, ['CNAME', 'MX', 'PTR'], true)) {
+        if (in_array($type, ['CNAME', 'MX', 'PTR', 'SRV'], true)) {
             return strtolower(rtrim($content, '.'));
         }
 
         return $content;
+    }
+
+    private function normalizeRecordData($type, array $data)
+    {
+        if ('SRV' === $type) {
+            return [
+                'priority' => isset($data['priority']) ? (int) $data['priority'] : 0,
+                'weight' => isset($data['weight']) ? (int) $data['weight'] : 0,
+                'port' => isset($data['port']) ? (int) $data['port'] : 0,
+                'target' => isset($data['target']) ? strtolower(rtrim((string) $data['target'], '.')) : '',
+            ];
+        }
+
+        if ('TLSA' === $type) {
+            return [
+                'usage' => isset($data['usage']) ? (int) $data['usage'] : 3,
+                'selector' => isset($data['selector']) ? (int) $data['selector'] : 1,
+                'matching_type' => isset($data['matching_type']) ? (int) $data['matching_type'] : 1,
+                'certificate' => isset($data['certificate']) ? preg_replace('/\s+/', '', (string) $data['certificate']) : '',
+            ];
+        }
+
+        return $data;
+    }
+
+    private function displaySrvData(array $data)
+    {
+        return (string) (isset($data['priority']) ? (int) $data['priority'] : 0) . ' ' .
+            (isset($data['weight']) ? (int) $data['weight'] : 0) . ' ' .
+            (isset($data['port']) ? (int) $data['port'] : 0) . ' ' .
+            (isset($data['target']) ? strtolower(rtrim((string) $data['target'], '.')) : '');
+    }
+
+    private function displayTlsaData(array $data)
+    {
+        return (string) (isset($data['usage']) ? (int) $data['usage'] : 3) . ' ' .
+            (isset($data['selector']) ? (int) $data['selector'] : 1) . ' ' .
+            (isset($data['matching_type']) ? (int) $data['matching_type'] : 1) . ' ' .
+            (isset($data['certificate']) ? preg_replace('/\s+/', '', (string) $data['certificate']) : '');
     }
 }

@@ -638,6 +638,7 @@ function RecordsApp({ proxyAction, syncAction, startSyncJobAction, processSyncJo
   const [page, setPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selection, setSelection] = useState([]);
   const syncToasterRef = useRef(null);
   const syncToastKeyRef = useRef(null);
 
@@ -806,23 +807,63 @@ function RecordsApp({ proxyAction, syncAction, startSyncJobAction, processSyncJo
     }
   };
 
-  const runRecordAction = async (row, direction) => {
-    const key = direction === 'pull' ? row.cloudflare_key : (row.local_key || row.cloudflare_key);
-    if (direction === 'delete' && !window.confirm(`Delete DNS record "${row.name}" from Plesk and Cloudflare?`)) {
+  const recordRowKey = record => (
+    [record.local_key, record.cloudflare_key].filter(Boolean).join('::') ||
+    `${record.type}-${record.name}`
+  );
+
+  const canRunRecordAction = (record, direction) => {
+    if (direction === 'pull') {
+      return record.status !== 'synced' && record.has_cloudflare;
+    }
+
+    if (direction === 'delete') {
+      return record.has_local || record.has_cloudflare;
+    }
+
+    return record.status !== 'synced' && record.has_local;
+  };
+
+  const runSelectedRecordAction = async direction => {
+    const selectedRecords = records.filter(record => selection.includes(recordRowKey(record)));
+    const actionableRecords = selectedRecords.filter(record => canRunRecordAction(record, direction));
+
+    if (!actionableRecords.length) {
+      notify('warning', `No selected records can be ${direction === 'delete' ? 'deleted' : direction === 'pull' ? 'pulled' : 'pushed'}.`);
       return;
     }
 
-    setBusy(`${direction}-${key}`);
+    if (direction === 'delete' && !window.confirm(`Delete ${actionableRecords.length} selected DNS record${actionableRecords.length === 1 ? '' : 's'} from Plesk and Cloudflare?`)) {
+      return;
+    }
+
+    let nextRecords = records;
+    let failed = 0;
+    setBusy(`bulk-${direction}`);
+
     try {
-      const payload = await postAction(recordAction, {
-        link_id: domain.id,
-        direction,
-        record_key: key,
-      });
-      setRecords(payload.records || []);
-      notify('success', direction === 'delete' ? 'Record deleted.' : (direction === 'pull' ? 'Record pulled.' : 'Record pushed.'));
-    } catch (error) {
-      notify('danger', error.message);
+      for (const record of actionableRecords) {
+        const key = direction === 'pull' ? record.cloudflare_key : (record.local_key || record.cloudflare_key);
+        try {
+          const payload = await postAction(recordAction, {
+            link_id: domain.id,
+            direction,
+            record_key: key,
+          });
+          nextRecords = payload.records || nextRecords;
+          setRecords(nextRecords);
+        } catch (error) {
+          failed += 1;
+          notify('danger', `${record.name}: ${error.message}`);
+        }
+      }
+
+      setSelection([]);
+      if (!failed) {
+        notify('success', `${actionableRecords.length} record${actionableRecords.length === 1 ? '' : 's'} ${direction === 'delete' ? 'deleted' : direction === 'pull' ? 'pulled' : 'pushed'}.`);
+      } else {
+        notify('warning', `${actionableRecords.length - failed} completed, ${failed} failed.`);
+      }
     } finally {
       setBusy('');
     }
@@ -885,48 +926,6 @@ function RecordsApp({ proxyAction, syncAction, startSyncJobAction, processSyncJo
         );
       },
     },
-    {
-      key: 'actions',
-      title: 'Actions',
-      type: 'actions',
-      width: '10%',
-      render: row => (
-        <ButtonGroup className="gc-record-actions">
-          {row.status !== 'synced' && row.has_local ? (
-            <Button
-              icon="arrow-up-tray"
-              arrow="backward"
-              intent="success"
-              title="Push"
-              aria-label={`Push ${row.name}`}
-              onClick={() => runRecordAction(row, 'push')}
-              state={busy === `push-${row.local_key}` ? 'loading' : undefined}
-            />
-          ) : null}
-          {row.status !== 'synced' && row.has_cloudflare ? (
-            <Button
-              icon="arrow-down-tray"
-              intent="primary"
-              title="Pull"
-              aria-label={`Pull ${row.name}`}
-              onClick={() => runRecordAction(row, 'pull')}
-              state={busy === `pull-${row.cloudflare_key}` ? 'loading' : undefined}
-            />
-          ) : null}
-          {(row.has_local || row.has_cloudflare) ? (
-            <Button
-              icon={<Icon name="recycle" intent="danger" />}
-              arrow="forward"
-              intent="danger"
-              title="Delete"
-              aria-label={`Delete ${row.name}`}
-              onClick={() => runRecordAction(row, 'delete')}
-              state={busy === `delete-${row.local_key || row.cloudflare_key}` ? 'loading' : undefined}
-            />
-          ) : null}
-        </ButtonGroup>
-      ),
-    },
   ];
 
   const filteredRecords = records.filter(record => matchesSearch(record, searchQuery, [
@@ -951,16 +950,26 @@ function RecordsApp({ proxyAction, syncAction, startSyncJobAction, processSyncJo
     ? sortedRecords
     : sortedRecords.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
   const data = visibleRecords
-    .map((record, index) => ({
+    .map(record => ({
       ...record,
-      key: `${record.type}-${record.name}-${(currentPage - 1) * (itemsPerPage === 'all' ? sortedRecords.length : itemsPerPage) + index}`,
+      key: recordRowKey(record),
     }));
+
+  const selectedRecords = records.filter(record => selection.includes(recordRowKey(record)));
+  const selectedPushCount = selectedRecords.filter(record => canRunRecordAction(record, 'push')).length;
+  const selectedPullCount = selectedRecords.filter(record => canRunRecordAction(record, 'pull')).length;
+  const selectedDeleteCount = selectedRecords.filter(record => canRunRecordAction(record, 'delete')).length;
 
   useEffect(() => {
     if (page > totalPages) {
       setPage(totalPages);
     }
   }, [page, totalPages]);
+
+  useEffect(() => {
+    const keys = new Set(records.map(recordRowKey));
+    setSelection(current => current.filter(key => keys.has(key)));
+  }, [records]);
 
   const list = target ? createPortal(
     <>
@@ -970,6 +979,8 @@ function RecordsApp({ proxyAction, syncAction, startSyncJobAction, processSyncJo
         rowKey="key"
         totalRows={sortedRecords.length}
         className="gc-record-list"
+        selection={selection}
+        onSelectionChange={setSelection}
         pagination={sortedRecords.length ? (
           <Pagination
             total={totalPages}
@@ -1018,7 +1029,7 @@ function RecordsApp({ proxyAction, syncAction, startSyncJobAction, processSyncJo
           }}
         />
       </div>
-      <ButtonGroup>
+      <ButtonGroup className="gc-record-main-actions">
         <Button
           arrow="backward"
           icon="arrow-left"
@@ -1052,6 +1063,37 @@ function RecordsApp({ proxyAction, syncAction, startSyncJobAction, processSyncJo
           {'Sync All'}
         </Button>
       </ButtonGroup>
+      {!!selection.length && (
+        <ButtonGroup className="gc-record-selection-actions">
+          <Button
+            icon="arrow-up-tray"
+            intent="success"
+            disabled={!selectedPushCount || Boolean(busy)}
+            state={busy === 'bulk-push' ? 'loading' : undefined}
+            onClick={() => runSelectedRecordAction('push')}
+          >
+            {'Push'}
+          </Button>
+          <Button
+            icon="arrow-down-tray"
+            intent="primary"
+            disabled={!selectedPullCount || Boolean(busy)}
+            state={busy === 'bulk-pull' ? 'loading' : undefined}
+            onClick={() => runSelectedRecordAction('pull')}
+          >
+            {'Pull'}
+          </Button>
+          <Button
+            icon={<Icon name="recycle" intent="danger" />}
+            intent="danger"
+            disabled={!selectedDeleteCount || Boolean(busy)}
+            state={busy === 'bulk-delete' ? 'loading' : undefined}
+            onClick={() => runSelectedRecordAction('delete')}
+          >
+            {'Delete'}
+          </Button>
+        </ButtonGroup>
+      )}
       {list}
     </>
   );
@@ -1573,6 +1615,7 @@ function LogsApp({ clearAction, initialLogs }) {
               columns={columns}
               data={visibleRows}
               rowKey="key"
+              totalRows={rows.length}
               className="gc-api-log-list"
               pagination={rows.length ? (
                 <Pagination
@@ -1838,7 +1881,7 @@ function SettingsApp({ saveAction, initialSettings }) {
 
 function AboutApp({ info, logo }) {
   const target = document.getElementById('gc-about-panel');
-  const version = info.version || '1.0.0';
+  const version = info.version || '1.0.3';
   const highlights = [
     {
       icon: 'cloud',
@@ -1899,11 +1942,11 @@ function AboutApp({ info, logo }) {
 
       <section className="gc-about-developer">
         <div className="gc-about-developer-logo">
-          <img src={info.developerLogo || 'https://assets.ghostcompiler.in/logo.png'} alt="Ghost Compiler" />
+          <img src={logo} alt="Cloudflare Pro" />
         </div>
         <div className="gc-about-developer-copy">
           <Status intent="info" compact>
-            {'Developer'}
+            {'Extension info'}
           </Status>
           <h3>{info.brand || 'Ghost Compiler'}</h3>
           <p>{'Designed and developed by Ghost Compiler for Cloudflare DNS management inside Plesk.'}</p>
@@ -1921,12 +1964,6 @@ function AboutApp({ info, logo }) {
             <span>{'Website'}</span>
             <Link href={info.vendorUrl || 'https://ghostcompiler.com'} target="_blank">
               {'ghostcompiler.com'}
-            </Link>
-          </div>
-          <div>
-            <span>{'GitHub'}</span>
-            <Link href={info.githubUrl || 'https://github.com/ghostcompiler'} target="_blank">
-              {'github.com/ghostcompiler'}
             </Link>
           </div>
           <div>

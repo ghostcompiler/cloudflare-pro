@@ -2,7 +2,7 @@
 
 class CloudflarePro_PleskDnsService
 {
-    private $types = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'PTR', 'CAA', 'DS', 'DNSKEY'];
+    private $types = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'PTR', 'CAA', 'DS', 'DNSKEY', 'TLSA', 'SRV'];
 
     public function recordsForDomainId($domainId)
     {
@@ -31,6 +31,22 @@ class CloudflarePro_PleskDnsService
 
         if ('MX' === $type && isset($record['priority'])) {
             $dnsRecord->setOption((string) (int) $record['priority']);
+        }
+
+        if ('SRV' === $type && isset($record['data']) && is_array($record['data'])) {
+            $dnsRecord->setOption(
+                (isset($record['data']['priority']) ? (int) $record['data']['priority'] : 0) . ' ' .
+                (isset($record['data']['weight']) ? (int) $record['data']['weight'] : 0) . ' ' .
+                (isset($record['data']['port']) ? (int) $record['data']['port'] : 0)
+            );
+        }
+
+        if ('TLSA' === $type && isset($record['data']) && is_array($record['data'])) {
+            $dnsRecord->setOption(
+                (isset($record['data']['usage']) ? (int) $record['data']['usage'] : 3) . ' ' .
+                (isset($record['data']['selector']) ? (int) $record['data']['selector'] : 1) . ' ' .
+                (isset($record['data']['matching_type']) ? (int) $record['data']['matching_type'] : 1)
+            );
         }
 
         $dnsRecord->save();
@@ -146,6 +162,16 @@ class CloudflarePro_PleskDnsService
             unset($item['content']);
         }
 
+        if ('SRV' === $type) {
+            $item['data'] = $this->srvData($item['content'], $record->getOption());
+            unset($item['content']);
+        }
+
+        if ('TLSA' === $type) {
+            $item['data'] = $this->tlsaData($item['content'], $record->getOption());
+            unset($item['content']);
+        }
+
         return $item;
     }
 
@@ -178,7 +204,7 @@ class CloudflarePro_PleskDnsService
     private function content($type, $value)
     {
         $value = trim((string) $value);
-        if (in_array($type, ['CNAME', 'MX', 'PTR'], true)) {
+        if (in_array($type, ['CNAME', 'MX', 'PTR', 'SRV'], true)) {
             return strtolower(rtrim($value, '.'));
         }
 
@@ -210,6 +236,12 @@ class CloudflarePro_PleskDnsService
             if (isset($data['flags'], $data['tag'], $data['value'])) {
                 return (int) $data['flags'] . ' ' . $data['tag'] . ' "' . $data['value'] . '"';
             }
+            if ('SRV' === strtoupper((string) $record['type']) && isset($data['target'])) {
+                return $this->content('SRV', $data['target']);
+            }
+            if ('TLSA' === strtoupper((string) $record['type']) && isset($data['certificate'])) {
+                return (string) $data['certificate'];
+            }
         }
 
         return '';
@@ -229,6 +261,44 @@ class CloudflarePro_PleskDnsService
             'flags' => 0,
             'tag' => 'issue',
             'value' => trim((string) $value),
+        ];
+    }
+
+    private function srvData($target, $option)
+    {
+        $target = trim((string) $target);
+        $option = trim((string) $option);
+        $parts = preg_split('/\s+/', $option);
+
+        if (count($parts) < 3 && preg_match('/^(\d+)\s+(\d+)\s+(\d+)\s+(.+)$/', $target, $matches)) {
+            $parts = [$matches[1], $matches[2], $matches[3]];
+            $target = $matches[4];
+        }
+
+        return [
+            'priority' => isset($parts[0]) && '' !== $parts[0] ? (int) $parts[0] : 0,
+            'weight' => isset($parts[1]) && '' !== $parts[1] ? (int) $parts[1] : 0,
+            'port' => isset($parts[2]) && '' !== $parts[2] ? (int) $parts[2] : 0,
+            'target' => $this->content('SRV', $target),
+        ];
+    }
+
+    private function tlsaData($certificate, $option)
+    {
+        $certificate = trim((string) $certificate);
+        $option = trim((string) $option);
+        $parts = preg_split('/\s+/', $option);
+
+        if (count($parts) < 3 && preg_match('/^(\d+)\s+(\d+)\s+(\d+)\s+(.+)$/', $certificate, $matches)) {
+            $parts = [$matches[1], $matches[2], $matches[3]];
+            $certificate = $matches[4];
+        }
+
+        return [
+            'usage' => isset($parts[0]) && '' !== $parts[0] ? (int) $parts[0] : 3,
+            'selector' => isset($parts[1]) && '' !== $parts[1] ? (int) $parts[1] : 1,
+            'matching_type' => isset($parts[2]) && '' !== $parts[2] ? (int) $parts[2] : 1,
+            'certificate' => preg_replace('/\s+/', '', $certificate),
         ];
     }
 }

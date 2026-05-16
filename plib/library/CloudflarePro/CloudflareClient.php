@@ -5,10 +5,12 @@ class CloudflarePro_CloudflareClient
     const BASE_URL = 'https://api.cloudflare.com/client/v4';
 
     private $apiLog;
+    private $logApiRequests = true;
 
     public function __construct(Modules_CloudflarePro_ApiLogRepository $apiLog = null)
     {
         $this->apiLog = $apiLog ?: new Modules_CloudflarePro_ApiLogRepository();
+        $this->logApiRequests = $this->loggingEnabled();
     }
 
     public function verifyToken($token)
@@ -83,6 +85,18 @@ class CloudflarePro_CloudflareClient
         }
     }
 
+    public function withoutLogging($callback)
+    {
+        $previous = $this->logApiRequests;
+        $this->logApiRequests = false;
+
+        try {
+            return call_user_func($callback);
+        } finally {
+            $this->logApiRequests = $previous;
+        }
+    }
+
     private function request($token, $method, $path, array $query = [], $body = null, $returnEnvelope = false)
     {
         $started = microtime(true);
@@ -136,24 +150,24 @@ class CloudflarePro_CloudflareClient
 
         if (false === $body) {
             $message = 'Cloudflare validation failed: ' . $error;
-            $this->apiLog->add($path, $method, $status, false, $request, null, $durationMs, $message);
+            $this->logRequest($path, $method, $status, false, $request, null, $durationMs, $message);
             throw new pm_Exception($message);
         }
 
         $data = json_decode($body, true);
         if (!is_array($data)) {
             $message = 'Cloudflare returned an invalid validation response.';
-            $this->apiLog->add($path, $method, $status, false, $request, $body, $durationMs, $message);
+            $this->logRequest($path, $method, $status, false, $request, $body, $durationMs, $message);
             throw new pm_Exception($message);
         }
 
         if ($status >= 200 && $status < 300 && !empty($data['success'])) {
-            $this->apiLog->add($path, $method, $status, true, $request, $data, $durationMs);
+            $this->logRequest($path, $method, $status, true, $request, $data, $durationMs);
             return $returnEnvelope ? $data : (isset($data['result']) ? $data['result'] : $data);
         }
 
         $message = $this->errorMessage($data, $status);
-        $this->apiLog->add($path, $method, $status, false, $request, $data, $durationMs, $message);
+        $this->logRequest($path, $method, $status, false, $request, $data, $durationMs, $message);
         throw new pm_Exception($message);
     }
 
@@ -187,5 +201,26 @@ class CloudflarePro_CloudflareClient
         }
 
         return 'Cloudflare API error ' . (int) $status . ': Unknown error.';
+    }
+
+    private function logRequest($route, $method, $statusCode, $ok, array $request = [], $response = null, $durationMs = null, $error = null)
+    {
+        if (!$this->logApiRequests) {
+            return;
+        }
+
+        $this->apiLog->add($route, $method, $statusCode, $ok, $request, $response, $durationMs, $error);
+    }
+
+    private function loggingEnabled()
+    {
+        try {
+            $settings = new Modules_CloudflarePro_SettingsRepository($this->apiLog->owner());
+            $values = $settings->all();
+
+            return !empty($values['log_api_requests']);
+        } catch (Throwable $e) {
+            return true;
+        }
     }
 }

@@ -1,35 +1,13 @@
 # Cloudflare Pro for Plesk
 
 <p align="center">
-  <img src="https://assets.ghostcompiler.in/logo.png" alt="Ghost Compiler" width="180">
+  <img src="htdocs/images/cloudflare-logo.svg" alt="Cloudflare Pro" width="180">
 </p>
 
 <h1 align="center">Cloudflare Pro for Plesk</h1>
 
 <p align="center">
   Sync Plesk DNS records with Cloudflare using token-scoped access, per-user settings, API logs, and background sync jobs.
-</p>
-
-<p align="center">
-  <img src="https://img.shields.io/badge/Plesk-Extension-52A8E8?style=for-the-badge&logo=plesk&logoColor=white" alt="Plesk Extension">
-  <img src="https://img.shields.io/badge/Cloudflare-DNS-F38020?style=for-the-badge&logo=cloudflare&logoColor=white" alt="Cloudflare DNS">
-  <img src="https://img.shields.io/badge/PHP-7.2%2B-777BB4?style=for-the-badge&logo=php&logoColor=white" alt="PHP">
-  <img src="https://img.shields.io/badge/React-Plesk%20UI-149ECA?style=for-the-badge&logo=react&logoColor=white" alt="React">
-  <img src="https://img.shields.io/badge/SQLite-Per%20User-003B57?style=for-the-badge&logo=sqlite&logoColor=white" alt="SQLite">
-</p>
-
-<p align="center">
-  <a href="https://github.com/ghostcompiler/cloudflare-pro/actions/workflows/ci.yml">
-    <img src="https://github.com/ghostcompiler/cloudflare-pro/actions/workflows/ci.yml/badge.svg" alt="CI">
-  </a>
-  <a href="https://github.com/ghostcompiler/cloudflare-pro/actions/workflows/release.yml">
-    <img src="https://github.com/ghostcompiler/cloudflare-pro/actions/workflows/release.yml/badge.svg" alt="Release">
-  </a>
-  <a href="https://github.com/ghostcompiler/cloudflare-pro/actions/workflows/package-latest.yml">
-    <img src="https://github.com/ghostcompiler/cloudflare-pro/actions/workflows/package-latest.yml/badge.svg" alt="Latest Package">
-  </a>
-  <img src="https://img.shields.io/badge/Creator-Ghost%20Compiler-111827?style=flat-square" alt="Creator">
-  <img src="https://img.shields.io/badge/Status-Pre--release-F59E0B?style=flat-square" alt="Status">
 </p>
 
 ---
@@ -45,7 +23,6 @@ The extension is built for the Plesk extension pattern: PHP/Zend controllers in 
 - **Name:** Ghost Compiler
 - **GitHub:** [ghostcompiler/cloudflare-pro](https://github.com/ghostcompiler/cloudflare-pro)
 - **Profile:** [github.com/ghostcompiler](https://github.com/ghostcompiler)
-- **Logo:** [assets.ghostcompiler.in/logo.png](https://assets.ghostcompiler.in/logo.png)
 
 ## Documentation
 
@@ -149,7 +126,7 @@ This URL points to the rolling `latest` pre-release asset. The **Package Latest*
 Pinned version installs are available after publishing a versioned release:
 
 ```sh
-plesk bin extension --install-url https://github.com/ghostcompiler/cloudflare-pro/releases/download/v1.0.0/cloudflare-pro-1.0.0-3.zip
+plesk bin extension --install-url https://github.com/ghostcompiler/cloudflare-pro/releases/download/v1.0.3/cloudflare-pro-1.0.3.zip
 ```
 
 Build the extension ZIP locally:
@@ -161,7 +138,7 @@ sh packaging/build.sh
 Install the local archive through Plesk CLI:
 
 ```sh
-plesk bin extension --install cloudflare-pro-1.0.0-3.zip
+plesk bin extension --install cloudflare-pro-1.0.3.zip
 ```
 
 Or install through Plesk UI:
@@ -169,7 +146,7 @@ Or install through Plesk UI:
 1. Open **Plesk Admin**.
 2. Go to **Extensions**.
 3. Click **Upload Extension**.
-4. Upload `cloudflare-pro-1.0.0-3.zip`.
+4. Upload `cloudflare-pro-1.0.3.zip`.
 5. Open **Cloudflare Pro** from the Plesk sidebar.
 
 ## Testing
@@ -184,14 +161,14 @@ xmllint --noout meta.xml
 node -e "JSON.parse(require('fs').readFileSync('packaging/manifest.json', 'utf8'))"
 sh -n packaging/build.sh
 sh packaging/build.sh
-zip -T cloudflare-pro-1.0.0-3.zip
+zip -T cloudflare-pro-1.0.3.zip
 ```
 
 GitHub Actions runners are included:
 
 - **CI** runs on every branch push, pull request, and manual dispatch. It validates PHP, frontend build, docs, metadata, packaging script, ZIP build, and uploads package artifacts.
 - **Package Latest** runs on `main` and manual dispatch. It builds and publishes `cloudflare-pro.zip` to the rolling `latest` GitHub pre-release.
-- **Release** runs on `v<version>` tags and manual dispatch. It verifies the tag matches `meta.xml`, builds `cloudflare-pro-<version>-<release>.zip`, and publishes the versioned release.
+- **Release** runs on `v<version>` tags and manual dispatch. It verifies the tag matches `meta.xml`, builds `cloudflare-pro-<version>.zip`, and publishes the versioned release.
 - **Pages** runs when docs change on `main` and manual dispatch. It validates the `docs/` folder and deploys it to GitHub Pages.
 
 ## First Run
